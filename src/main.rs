@@ -1,3 +1,6 @@
+mod scanner;
+mod token;
+
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -18,7 +21,9 @@ fn main() {
 fn run_file(file: &str) {
     let contents = fs::read_to_string(file)
         .expect("Something went wrong reading the file");
-    run(&contents);
+    if let Err(_) = run(&contents) {
+        std::process::exit(65);
+    }
 }
 
 fn run_prompt() {
@@ -27,11 +32,25 @@ fn run_prompt() {
         io::stdout().flush().unwrap();
         let mut line = String::new();
         io::stdin().read_line(&mut line).expect("Failed to read line");
-        run(&line);
+        if let Err(_) = run(&line) {
+            println!("error")
+        }
     }
 }
 
-fn run(source: &str) {
-    let prefix: String = source.trim().chars().take(50).collect();
-    println!("run({})", prefix)
+fn run(source: &str) -> Result<(), ()> {
+    let mut scanner = scanner::Scanner::from_string(source);
+    let tokens = scanner.scan_tokens();
+    for token in tokens {
+        println!("{:?}", token);
+    }
+    Ok(())
+}
+
+fn error(line: i32, message: &str) {
+    report(line, "", message);
+}
+
+fn report(line: i32, wher: &str, message: &str) {
+    println!("[line {}] Error{}: {}", line, wher, message);
 }
