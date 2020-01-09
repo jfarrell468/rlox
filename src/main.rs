@@ -40,17 +40,9 @@ fn run_prompt() {
 
 fn run(source: &str) -> Result<(), ()> {
     let mut scanner = scanner::Scanner::from_string(source);
-    let tokens = scanner.scan_tokens();
-    for token in tokens {
+    for token in scanner.scan_tokens().0 {
         println!("{:?}", token);
     }
     Ok(())
 }
 
-fn error(line: i32, message: &str) {
-    report(line, "", message);
-}
-
-fn report(line: i32, wher: &str, message: &str) {
-    println!("[line {}] Error{}: {}", line, wher, message);
-}

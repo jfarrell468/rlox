@@ -1,5 +1,5 @@
-#[derive(Debug)]
-pub enum TokenType {
+#[derive(Debug, Clone)]
+pub enum TokenType<'a> {
     // Single-character tokens.
     LeftParen, RightParen, LeftBrace, RightBrace,
     Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
@@ -11,7 +11,7 @@ pub enum TokenType {
     Less, LessEqual,
 
     // Literals.
-    Identifier, String, Number,
+    Identifier(&'a str), String(&'a str), Number(f64),
 
     // Keywords.
     And, Class, Else, False, Fun, For, If, Nil, Or,
@@ -21,14 +21,8 @@ pub enum TokenType {
 }
 
 #[derive(Debug)]
-pub enum Literal {
-
-}
-
-#[derive(Debug)]
 pub struct Token<'a> {
-    pub tokentype: TokenType,
+    pub tokentype: TokenType<'a>,
     pub lexeme: &'a str,
-    pub literal: Option<Literal>,
     pub line: i32,
 }
