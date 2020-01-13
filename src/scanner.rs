@@ -26,7 +26,7 @@ impl<'a> Scanner<'a> {
             }
         }
         self.tokens.push(Token { tokentype: TokenType::EOF, lexeme: "", line: self.line });
-        (&self.tokens, err)
+        (&self.tokens, !err)
     }
     fn scan_token(&mut self) -> Result<(), ()> {
         if let Some((_, c)) = self.iter.next() {
@@ -86,11 +86,14 @@ impl<'a> Scanner<'a> {
         }
         Ok(())
     }
-    fn add_token(&mut self, token_type: TokenType<'a>) {
-        let current = match self.iter.peek() {
+    fn current(&mut self) -> usize {
+        match self.iter.peek() {
             None => self.source.len(),
             Some((idx, _)) => *idx
-        };
+        }
+    }
+    fn add_token(&mut self, token_type: TokenType<'a>) {
+        let current = self.current();
         self.tokens.push(Token { tokentype: token_type, lexeme: &self.source[self.start..current], line: self.line })
     }
     fn next_if(&mut self, expected: char) -> bool {
@@ -121,10 +124,7 @@ impl<'a> Scanner<'a> {
 
         self.iter.next().expect("Failed to advance.");
 
-        let current = match self.iter.peek() {
-            None => self.source.len(),
-            Some((idx, _)) => *idx
-        };
+        let current = self.current();
         self.add_token(TokenType::String(&self.source[self.start + 1..current - 1]));
     }
     fn number(&mut self) {
@@ -154,10 +154,7 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        let current = match self.iter.peek() {
-            None => self.source.len(),
-            Some((idx, _)) => *idx
-        };
+        let current = self.current();
         self.add_token(TokenType::Number(self.source[self.start..current].parse().expect("failed to parse number")));
     }
     fn identifier(&mut self) {
@@ -167,10 +164,7 @@ impl<'a> Scanner<'a> {
                 _ => { break; }
             }
         }
-        let current = match self.iter.peek() {
-            None => self.source.len(),
-            Some((idx, _)) => *idx
-        };
+        let current = self.current();
         match KEYWORDS.get(&self.source[self.start..current]) {
             None => { self.add_token(TokenType::Identifier(&self.source[self.start..current])); }
             Some(x) => { self.add_token(x.clone()); }
@@ -203,4 +197,35 @@ fn error(line: i32, message: &str) {
 
 fn report(line: i32, wher: &str, message: &str) {
     println!("[line {}] Error{}: {}", line, wher, message);
+}
+
+#[cfg(test)]
+mod scanner_tests {
+    use crate::scanner::Scanner;
+    use crate::token::TokenType;
+
+    // TODO: Just use the "matches" crate.
+    macro_rules! matches {
+        ($expression:expr, $($pattern:tt)+) => {
+            match $expression {
+                $($pattern)+ => true,
+                _ => false
+            }
+        }
+    }
+
+    #[test]
+    fn basic_scanner_test() {
+        let mut scanner = Scanner::from_string("x = 2");
+        let (tokens, success) = scanner.scan_tokens();
+        assert!(success);
+        assert_eq!(tokens.len(), 4);
+        assert!(matches!(tokens[0].tokentype, TokenType::Identifier("x")));
+        assert!(matches!(tokens[1].tokentype, TokenType::Equal));
+        assert!(matches!(tokens[2].tokentype, TokenType::Number(_)));
+        if let crate::token::TokenType::Number(x) = tokens[2].tokentype {
+            assert_eq!(x, 2.0)
+        }
+        assert!(matches!(tokens[3].tokentype, TokenType::EOF));
+    }
 }
