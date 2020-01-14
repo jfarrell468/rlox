@@ -1,10 +1,17 @@
 use super::token::{Token, TokenType};
 
 enum Expression<'a> {
-    Binary{left: Box<Expression<'a>>, operator: Token<'a>, right: Box<Expression<'a>>},
+    Binary {
+        left: Box<Expression<'a>>,
+        operator: Token<'a>,
+        right: Box<Expression<'a>>,
+    },
     Grouping(Box<Expression<'a>>),
     Literal(TokenType<'a>),
-    Unary{operator: Token<'a>, right: Box<Expression<'a>>}
+    Unary {
+        operator: Token<'a>,
+        right: Box<Expression<'a>>,
+    },
 }
 
 trait ExprVisitor<T> {
@@ -19,9 +26,9 @@ impl<'a> Expression<'a> {
 
 #[cfg(test)]
 mod ast_tests {
+    use crate::ast::ExprVisitor;
     use crate::ast::Expression;
     use crate::token::{Token, TokenType};
-    use crate::ast::ExprVisitor;
 
     struct AstPrinter {}
     impl AstPrinter {
@@ -42,19 +49,17 @@ mod ast_tests {
                 Expression::Binary {
                     left,
                     operator,
-                    right
+                    right,
                 } => self.parenthesize(operator.lexeme, vec![left, right]),
-                Expression::Grouping(x) =>
-                    self.parenthesize("group", vec![x]),
+                Expression::Grouping(x) => self.parenthesize("group", vec![x]),
                 Expression::Literal(x) => match x {
                     TokenType::String(y) => y.to_string(),
                     TokenType::Number(y) => format!("{}", y).to_string(),
                     _ => String::from(""),
                 },
-                Expression::Unary {
-                    operator,
-                    right
-                } => self.parenthesize(operator.lexeme, vec![right]),
+                Expression::Unary { operator, right } => {
+                    self.parenthesize(operator.lexeme, vec![right])
+                }
             }
         }
     }
@@ -68,19 +73,18 @@ mod ast_tests {
                     lexeme: "-",
                     line: 1,
                 },
-                right: Box::new(Expression::Literal(
-                    TokenType::Number(123.0)))
+                right: Box::new(Expression::Literal(TokenType::Number(123.0))),
             }),
             operator: Token {
                 tokentype: TokenType::Star,
                 lexeme: "*",
                 line: 1,
             },
-            right: Box::new(Expression::Grouping(
-                Box::new(Expression::Literal(
-                    TokenType::Number(45.67))))),
+            right: Box::new(Expression::Grouping(Box::new(Expression::Literal(
+                TokenType::Number(45.67),
+            )))),
         };
-        let visitor = AstPrinter{};
+        let visitor = AstPrinter {};
         assert_eq!(expression.accept(&visitor), "(* (- 123) (group 45.67))");
     }
 }

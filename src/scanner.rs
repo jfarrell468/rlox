@@ -15,7 +15,13 @@ pub struct Scanner<'a> {
 
 impl<'a> Scanner<'a> {
     pub fn from_string(source: &str) -> Scanner {
-        Scanner { source: source, tokens: Vec::new(), iter: source.char_indices().peekable(), start: 0, line: 1 }
+        Scanner {
+            source: source,
+            tokens: Vec::new(),
+            iter: source.char_indices().peekable(),
+            start: 0,
+            line: 1,
+        }
     }
     pub fn scan_tokens(&mut self) -> (&Vec<Token>, bool) {
         let mut err = false;
@@ -25,7 +31,11 @@ impl<'a> Scanner<'a> {
                 err = true;
             }
         }
-        self.tokens.push(Token { tokentype: TokenType::EOF, lexeme: "", line: self.line });
+        self.tokens.push(Token {
+            tokentype: TokenType::EOF,
+            lexeme: "",
+            line: self.line,
+        });
         (&self.tokens, !err)
     }
     fn scan_token(&mut self) -> Result<(), ()> {
@@ -42,19 +52,35 @@ impl<'a> Scanner<'a> {
                 ';' => self.add_token(TokenType::Semicolon),
                 '*' => self.add_token(TokenType::Star),
                 '!' => {
-                    let token = if self.next_if('=') { TokenType::BangEqual } else { TokenType::Bang };
+                    let token = if self.next_if('=') {
+                        TokenType::BangEqual
+                    } else {
+                        TokenType::Bang
+                    };
                     self.add_token(token)
                 }
                 '=' => {
-                    let token = if self.next_if('=') { TokenType::EqualEqual } else { TokenType::Equal };
+                    let token = if self.next_if('=') {
+                        TokenType::EqualEqual
+                    } else {
+                        TokenType::Equal
+                    };
                     self.add_token(token)
                 }
                 '<' => {
-                    let token = if self.next_if('=') { TokenType::LessEqual } else { TokenType::Less };
+                    let token = if self.next_if('=') {
+                        TokenType::LessEqual
+                    } else {
+                        TokenType::Less
+                    };
                     self.add_token(token)
                 }
                 '>' => {
-                    let token = if self.next_if('=') { TokenType::GreaterEqual } else { TokenType::Greater };
+                    let token = if self.next_if('=') {
+                        TokenType::GreaterEqual
+                    } else {
+                        TokenType::Greater
+                    };
                     self.add_token(token)
                 }
                 '/' => {
@@ -74,7 +100,9 @@ impl<'a> Scanner<'a> {
                     }
                 }
                 ' ' | '\r' | '\t' => (),
-                '\n' => { self.line += 1; }
+                '\n' => {
+                    self.line += 1;
+                }
                 '"' => self.string(),
                 '0'..='9' => self.number(),
                 'a'..='z' | 'A'..='Z' | '_' => self.identifier(),
@@ -89,12 +117,16 @@ impl<'a> Scanner<'a> {
     fn current(&mut self) -> usize {
         match self.iter.peek() {
             None => self.source.len(),
-            Some((idx, _)) => *idx
+            Some((idx, _)) => *idx,
         }
     }
     fn add_token(&mut self, token_type: TokenType<'a>) {
         let current = self.current();
-        self.tokens.push(Token { tokentype: token_type, lexeme: &self.source[self.start..current], line: self.line })
+        self.tokens.push(Token {
+            tokentype: token_type,
+            lexeme: &self.source[self.start..current],
+            line: self.line,
+        })
     }
     fn next_if(&mut self, expected: char) -> bool {
         if let Some((_, c)) = self.iter.peek() {
@@ -108,12 +140,16 @@ impl<'a> Scanner<'a> {
     fn string(&mut self) {
         while let Some((_, c)) = self.iter.peek() {
             match c {
-                '"' => { break; }
+                '"' => {
+                    break;
+                }
                 '\n' => {
                     self.line += 1;
                     self.iter.next();
                 }
-                _ => { self.iter.next(); }
+                _ => {
+                    self.iter.next();
+                }
             }
         }
 
@@ -130,8 +166,12 @@ impl<'a> Scanner<'a> {
     fn number(&mut self) {
         while let Some((_, c)) = self.iter.peek() {
             match c {
-                '0'..='9' => { self.iter.next(); }
-                _ => { break; }
+                '0'..='9' => {
+                    self.iter.next();
+                }
+                _ => {
+                    break;
+                }
             }
         }
 
@@ -144,30 +184,46 @@ impl<'a> Scanner<'a> {
                         self.iter.next();
                         while let Some((_, c)) = self.iter.peek() {
                             match c {
-                                '0'..='9' => { self.iter.next(); }
-                                _ => { break; }
+                                '0'..='9' => {
+                                    self.iter.next();
+                                }
+                                _ => {
+                                    break;
+                                }
                             }
                         }
                     }
-                    _ => ()
+                    _ => (),
                 }
             }
         }
 
         let current = self.current();
-        self.add_token(TokenType::Number(self.source[self.start..current].parse().expect("failed to parse number")));
+        self.add_token(TokenType::Number(
+            self.source[self.start..current]
+                .parse()
+                .expect("failed to parse number"),
+        ));
     }
     fn identifier(&mut self) {
         while let Some((_, c)) = self.iter.peek() {
             match c {
-                '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' => { self.iter.next(); }
-                _ => { break; }
+                '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' => {
+                    self.iter.next();
+                }
+                _ => {
+                    break;
+                }
             }
         }
         let current = self.current();
         match KEYWORDS.get(&self.source[self.start..current]) {
-            None => { self.add_token(TokenType::Identifier(&self.source[self.start..current])); }
-            Some(x) => { self.add_token(x.clone()); }
+            None => {
+                self.add_token(TokenType::Identifier(&self.source[self.start..current]));
+            }
+            Some(x) => {
+                self.add_token(x.clone());
+            }
         }
     }
 }
