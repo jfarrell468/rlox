@@ -175,25 +175,27 @@ impl<'a> Scanner<'a> {
             }
         }
 
-        if let Some((_, _)) = self.iter.peek() {
-            let mut x = self.iter.clone();
-            x.next().expect("failed to advance");
-            if let Some((_, cc)) = x.peek() {
-                match cc {
-                    '0'..='9' => {
-                        self.iter.next();
-                        while let Some((_, c)) = self.iter.peek() {
-                            match c {
-                                '0'..='9' => {
-                                    self.iter.next();
-                                }
-                                _ => {
-                                    break;
+        if let Some((_, c)) = self.iter.peek() {
+            if *c == '.' {
+                let mut x = self.iter.clone();
+                x.next().expect("failed to advance");
+                if let Some((_, cc)) = x.peek() {
+                    match cc {
+                        '0'..='9' => {
+                            self.iter.next();
+                            while let Some((_, c)) = self.iter.peek() {
+                                match c {
+                                    '0'..='9' => {
+                                        self.iter.next();
+                                    }
+                                    _ => {
+                                        break;
+                                    }
                                 }
                             }
                         }
+                        _ => (),
                     }
-                    _ => (),
                 }
             }
         }
@@ -278,6 +280,24 @@ mod scanner_tests {
         assert_eq!(tokens.len(), 4);
         assert!(matches!(tokens[0].tokentype, TokenType::Identifier("x")));
         assert!(matches!(tokens[1].tokentype, TokenType::Equal));
+        assert!(matches!(tokens[2].tokentype, TokenType::Number(_)));
+        if let crate::token::TokenType::Number(x) = tokens[2].tokentype {
+            assert_eq!(x, 2.0)
+        }
+        assert!(matches!(tokens[3].tokentype, TokenType::EOF));
+    }
+
+    #[test]
+    fn number_parsing() {
+        let mut scanner = Scanner::from_string("1+2");
+        let (tokens, success) = scanner.scan_tokens();
+        assert!(success);
+        assert_eq!(tokens.len(), 4);
+        assert!(matches!(tokens[0].tokentype, TokenType::Number(_)));
+        if let crate::token::TokenType::Number(x) = tokens[0].tokentype {
+            assert_eq!(x, 1.0)
+        }
+        assert!(matches!(tokens[1].tokentype, TokenType::Plus));
         assert!(matches!(tokens[2].tokentype, TokenType::Number(_)));
         if let crate::token::TokenType::Number(x) = tokens[2].tokentype {
             assert_eq!(x, 2.0)
