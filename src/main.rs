@@ -1,4 +1,5 @@
 mod ast;
+mod parser;
 mod scanner;
 mod token;
 
@@ -42,8 +43,12 @@ fn run_prompt() {
 
 fn run(source: &str) -> Result<(), ()> {
     let mut scanner = scanner::Scanner::from_string(source);
-    for token in scanner.scan_tokens().0 {
+    let tokens = scanner.scan_tokens().0;
+    for token in tokens {
         println!("{:?}", token);
     }
+    let expr = parser::Parser::parse(tokens);
+    let printer = ast::AstPrinter {};
+    println!("{}", expr.accept(&printer));
     Ok(())
 }
