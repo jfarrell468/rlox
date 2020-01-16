@@ -1,10 +1,10 @@
 use super::token::{Token, TokenType};
 use phf::phf_map;
+use std::error::Error;
+use std::fmt;
+use std::fmt::Formatter;
 use std::iter::Peekable;
 use std::str::CharIndices;
-use std::fmt;
-use std::error::Error;
-use std::fmt::Formatter;
 
 #[derive(Debug)]
 struct ScanError {
@@ -78,41 +78,51 @@ impl<'a> Scanner<'a> {
             '+' => Ok(Some(self.token(TokenType::Plus))),
             ';' => Ok(Some(self.token(TokenType::Semicolon))),
             '*' => Ok(Some(self.token(TokenType::Star))),
-            '!' => if self.next_if('=') {
-                Ok(Some(self.token(TokenType::BangEqual)))
-            } else {
-                Ok(Some(self.token(TokenType::Bang)))
-            },
-            '=' => if self.next_if('=') {
-                Ok(Some(self.token(TokenType::EqualEqual)))
-            } else {
-                Ok(Some(self.token(TokenType::Equal)))
-            },
-            '<' => if self.next_if('=') {
-                Ok(Some(self.token(TokenType::LessEqual)))
-            } else {
-                Ok(Some(self.token(TokenType::Less)))
-            },
-            '>' => if self.next_if('=') {
-                Ok(Some(self.token(TokenType::GreaterEqual)))
-            } else {
-                Ok(Some(self.token(TokenType::Greater)))
-            },
-            '/' => if self.next_if('/') {
-                while let Some((_, c)) = self.iter.peek() {
-                    match c {
-                        '\n' => {
-                            break;
-                        }
-                        _ => {
-                            self.iter.next();
+            '!' => {
+                if self.next_if('=') {
+                    Ok(Some(self.token(TokenType::BangEqual)))
+                } else {
+                    Ok(Some(self.token(TokenType::Bang)))
+                }
+            }
+            '=' => {
+                if self.next_if('=') {
+                    Ok(Some(self.token(TokenType::EqualEqual)))
+                } else {
+                    Ok(Some(self.token(TokenType::Equal)))
+                }
+            }
+            '<' => {
+                if self.next_if('=') {
+                    Ok(Some(self.token(TokenType::LessEqual)))
+                } else {
+                    Ok(Some(self.token(TokenType::Less)))
+                }
+            }
+            '>' => {
+                if self.next_if('=') {
+                    Ok(Some(self.token(TokenType::GreaterEqual)))
+                } else {
+                    Ok(Some(self.token(TokenType::Greater)))
+                }
+            }
+            '/' => {
+                if self.next_if('/') {
+                    while let Some((_, c)) = self.iter.peek() {
+                        match c {
+                            '\n' => {
+                                break;
+                            }
+                            _ => {
+                                self.iter.next();
+                            }
                         }
                     }
+                    Ok(None)
+                } else {
+                    Ok(Some(self.token(TokenType::Slash)))
                 }
-                Ok(None)
-            } else {
-                Ok(Some(self.token(TokenType::Slash)))
-            },
+            }
             ' ' | '\r' | '\t' => Ok(None),
             '\n' => {
                 self.line += 1;
@@ -121,7 +131,10 @@ impl<'a> Scanner<'a> {
             '"' => Ok(Some(self.string()?)),
             '0'..='9' => Ok(Some(self.number()?)),
             'a'..='z' | 'A'..='Z' | '_' => Ok(Some(self.identifier()?)),
-            _ => Err(Box::new(ScanError { line: self.line, message: "Unexpected character".to_string() }))
+            _ => Err(Box::new(ScanError {
+                line: self.line,
+                message: "Unexpected character".to_string(),
+            })),
         }
     }
     fn current(&mut self) -> usize {
@@ -148,7 +161,10 @@ impl<'a> Scanner<'a> {
         false
     }
     fn advance(&mut self) -> Result<(usize, char), Box<dyn Error>> {
-        self.iter.next().ok_or(Box::new(ScanError { line: self.line, message: "Failed to advance".to_string() }))
+        self.iter.next().ok_or(Box::new(ScanError {
+            line: self.line,
+            message: "Failed to advance".to_string(),
+        }))
     }
     fn string(&mut self) -> Result<Token<'a>, Box<dyn Error>> {
         while let Some((_, c)) = self.iter.peek() {
@@ -184,7 +200,10 @@ impl<'a> Scanner<'a> {
         if let Some((_, c)) = self.iter.peek() {
             if *c == '.' {
                 let mut x = self.iter.clone();
-                x.next().ok_or(Box::new(ScanError { line: self.line, message: "Failed to advance".to_string() }))?;
+                x.next().ok_or(Box::new(ScanError {
+                    line: self.line,
+                    message: "Failed to advance".to_string(),
+                }))?;
                 if let Some((_, cc)) = x.peek() {
                     if let '0'..='9' = cc {
                         self.advance()?;
@@ -219,10 +238,8 @@ impl<'a> Scanner<'a> {
         }
         let current = self.current();
         match KEYWORDS.get(&self.source[self.start..current]) {
-            None =>
-                Ok(self.token(TokenType::Identifier(&self.source[self.start..current]))),
-            Some(x) =>
-                Ok(self.token(x.clone()))
+            None => Ok(self.token(TokenType::Identifier(&self.source[self.start..current]))),
+            Some(x) => Ok(self.token(x.clone())),
         }
     }
 }
