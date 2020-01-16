@@ -47,8 +47,15 @@ fn run(source: &str) -> Result<(), ()> {
     for token in tokens {
         println!("{:?}", token);
     }
-    let expr = parser::Parser::parse(tokens);
-    let printer = ast::AstPrinter {};
-    println!("{}", expr.accept(&printer));
+    let mut parser = parser::Parser::new(tokens);
+    match parser.parse() {
+        Ok(expr) => {
+            let printer = ast::AstPrinter {};
+            println!("{}", expr.accept(&printer));
+        }
+        Err(x) => {
+            println!("{}", x);
+        }
+    }
     Ok(())
 }

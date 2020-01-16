@@ -60,7 +60,7 @@ impl ExprVisitor<String> for AstPrinter {
 
 #[cfg(test)]
 mod ast_tests {
-    use crate::ast::{AstPrinter, ExprVisitor, Expression};
+    use crate::ast::{AstPrinter, Expression};
     use crate::token::{Token, TokenType};
 
     #[test]
