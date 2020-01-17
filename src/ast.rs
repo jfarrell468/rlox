@@ -14,12 +14,23 @@ pub enum Expression<'a> {
     },
 }
 
-pub trait ExprVisitor<T> {
-    fn visit(&self, n: &Expression) -> T;
+pub trait Visitor<T, Output> {
+    fn visit(&self, n: &T) -> Output;
 }
 
 impl<'a> Expression<'a> {
-    pub fn accept<T>(&self, v: &ExprVisitor<T>) -> T {
+    pub fn accept<T>(&self, v: &Visitor<Expression<'a>, T>) -> T {
+        v.visit(self)
+    }
+}
+
+pub enum Statement<'a> {
+    Print(Expression<'a>),
+    Expression(Expression<'a>),
+}
+
+impl<'a> Statement<'a> {
+    pub fn accept<T>(&self, v: &Visitor<Statement<'a>, T>) -> T {
         v.visit(self)
     }
 }
@@ -37,7 +48,7 @@ impl AstPrinter {
         x
     }
 }
-impl ExprVisitor<String> for AstPrinter {
+impl<'a> Visitor<Expression<'a>, String> for AstPrinter {
     fn visit(&self, n: &Expression) -> String {
         match n {
             Expression::Binary {

@@ -1,4 +1,4 @@
-use super::ast::{ExprVisitor, Expression};
+use super::ast::{Expression, Statement, Visitor};
 use super::token::TokenType;
 use std::fmt;
 use std::fmt::Formatter;
@@ -22,12 +22,14 @@ impl fmt::Display for Value {
 }
 
 pub struct Interpreter {}
-impl ExprVisitor<Value> for Interpreter {
+impl<'a> Visitor<Expression<'a>, Value> for Interpreter {
     fn visit(&self, expr: &Expression) -> Value {
         match expr {
             Expression::Literal(x) => match x {
                 TokenType::String(y) => Value::String(y.to_string()),
                 TokenType::Number(y) => Value::Number(*y),
+                TokenType::False => Value::Boolean(false),
+                TokenType::True => Value::Boolean(true),
                 _ => Value::Nil,
             },
             Expression::Grouping(x) => self.evaluate(x),
@@ -101,9 +103,30 @@ impl ExprVisitor<Value> for Interpreter {
         }
     }
 }
+impl<'a> Visitor<Statement<'a>, ()> for Interpreter {
+    fn visit(&self, stmt: &Statement) {
+        match stmt {
+            Statement::Print(e) => {
+                let val = self.evaluate(e);
+                println!("{}", val);
+            }
+            Statement::Expression(e) => {
+                self.evaluate(e);
+            }
+        }
+    }
+}
 impl Interpreter {
-    fn evaluate(&self, n: &Expression) -> Value {
-        n.accept(self)
+    fn evaluate(&self, expr: &Expression) -> Value {
+        expr.accept(self)
+    }
+    fn execute(&self, stmt: &Statement) {
+        stmt.accept(self);
+    }
+    pub fn interpret(&self, statements: &Vec<Statement>) {
+        for stmt in statements {
+            self.execute(stmt);
+        }
     }
 }
 fn is_truthy(x: &Value) -> bool {

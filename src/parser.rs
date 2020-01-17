@@ -1,4 +1,4 @@
-use super::ast::Expression;
+use super::ast::{Expression, Statement};
 use super::token::{Token, TokenType};
 use std::error::Error;
 use std::fmt;
@@ -42,8 +42,41 @@ impl<'a> Parser<'a> {
             current: 0,
         }
     }
-    pub fn parse(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
-        self.expression()
+    pub fn parse(&mut self) -> Result<Vec<Statement<'a>>, Box<dyn Error + 'a>> {
+        let mut statements: Vec<Statement<'a>> = Vec::new();
+        while !self.is_at_end() {
+            statements.push(self.statement()?);
+        }
+        Ok(statements)
+    }
+    fn statement(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
+        match self.peek().tokentype {
+            TokenType::Print => {
+                self.advance();
+                self.print_statement()
+            }
+            _ => self.expression_statement(),
+        }
+    }
+    fn print_statement(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
+        let expr = self.expression()?;
+        match self.peek().tokentype {
+            TokenType::Semicolon => {
+                self.advance();
+                Ok(Statement::Print(expr))
+            }
+            _ => Err(Box::new(self.error("Expect ';' after value."))),
+        }
+    }
+    fn expression_statement(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
+        let expr = self.expression()?;
+        match self.peek().tokentype {
+            TokenType::Semicolon => {
+                self.advance();
+                Ok(Statement::Expression(expr))
+            }
+            _ => Err(Box::new(self.error("Expect ';' after expression."))),
+        }
     }
     fn expression(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         self.equality()

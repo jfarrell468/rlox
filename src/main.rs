@@ -23,7 +23,7 @@ fn main() {
 
 fn run_file(file: &str) {
     let contents = fs::read_to_string(file).expect("Something went wrong reading the file");
-    if let Err(_) = run(&contents) {
+    if !run(&contents) {
         std::process::exit(65);
     }
 }
@@ -36,29 +36,27 @@ fn run_prompt() {
         io::stdin()
             .read_line(&mut line)
             .expect("Failed to read line");
-        if let Err(_) = run(&line) {
-            println!("error")
-        }
+        run(&line);
     }
 }
 
-fn run(source: &str) -> Result<(), ()> {
+fn run(source: &str) -> bool {
     let mut scanner = scanner::Scanner::from_string(source);
-    let tokens = scanner.scan_tokens().0;
-    for token in tokens {
-        println!("{:?}", token);
+    let (tokens, success) = scanner.scan_tokens();
+    if !success {
+        return success;
     }
     let mut parser = parser::Parser::new(tokens);
-    match parser.parse() {
-        Ok(expr) => {
-            let printer = ast::AstPrinter {};
-            println!("{}", expr.accept(&printer));
+    let parse = parser.parse();
+    match parse {
+        Ok(statements) => {
             let interpreter = interpreter::Interpreter {};
-            println!("{}", expr.accept(&interpreter));
+            interpreter.interpret(&statements);
+            true
         }
         Err(x) => {
             println!("{}", x);
+            false
         }
     }
-    Ok(())
 }
