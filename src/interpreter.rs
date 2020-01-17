@@ -1,29 +1,12 @@
-use super::ast::{Expression, Statement, Visitor};
+use super::ast::{Expression, Statement, Value, Visitor};
+use super::environment::Environment;
 use super::token::TokenType;
-use std::fmt;
-use std::fmt::Formatter;
 
-#[derive(Debug)]
-pub enum Value {
-    Nil,
-    Boolean(bool),
-    Number(f64),
-    String(String),
+pub struct Interpreter {
+    environment: Environment,
 }
-impl fmt::Display for Value {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Value::Nil => write!(f, "nil"),
-            Value::Boolean(x) => write!(f, "{}", x),
-            Value::Number(x) => write!(f, "{}", x),
-            Value::String(x) => write!(f, "{}", x),
-        }
-    }
-}
-
-pub struct Interpreter {}
 impl<'a> Visitor<Expression<'a>, Value> for Interpreter {
-    fn visit(&self, expr: &Expression) -> Value {
+    fn visit(&mut self, expr: &Expression) -> Value {
         match expr {
             Expression::Literal(x) => match x {
                 TokenType::String(y) => Value::String(y.to_string()),
@@ -100,11 +83,12 @@ impl<'a> Visitor<Expression<'a>, Value> for Interpreter {
                     },
                 }
             }
+            Expression::Variable(token) => self.environment.get(*token).unwrap(),
         }
     }
 }
 impl<'a> Visitor<Statement<'a>, ()> for Interpreter {
-    fn visit(&self, stmt: &Statement) {
+    fn visit(&mut self, stmt: &Statement) {
         match stmt {
             Statement::Print(e) => {
                 let val = self.evaluate(e);
@@ -113,17 +97,26 @@ impl<'a> Visitor<Statement<'a>, ()> for Interpreter {
             Statement::Expression(e) => {
                 self.evaluate(e);
             }
+            Statement::Var { name, initializer } => {
+                let val = self.evaluate(initializer);
+                self.environment.define(*name, val);
+            }
         }
     }
 }
 impl Interpreter {
-    fn evaluate(&self, expr: &Expression) -> Value {
+    pub fn new() -> Interpreter {
+        Interpreter {
+            environment: Environment::new(),
+        }
+    }
+    fn evaluate(&mut self, expr: &Expression) -> Value {
         expr.accept(self)
     }
-    fn execute(&self, stmt: &Statement) {
+    fn execute(&mut self, stmt: &Statement) {
         stmt.accept(self);
     }
-    pub fn interpret(&self, statements: &Vec<Statement>) {
+    pub fn interpret(&mut self, statements: &Vec<Statement>) {
         for stmt in statements {
             self.execute(stmt);
         }

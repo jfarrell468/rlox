@@ -1,4 +1,5 @@
 mod ast;
+mod environment;
 mod interpreter;
 mod parser;
 mod scanner;
@@ -50,7 +51,7 @@ fn run(source: &str) -> bool {
     let parse = parser.parse();
     match parse {
         Ok(statements) => {
-            let interpreter = interpreter::Interpreter {};
+            let mut interpreter = interpreter::Interpreter::new();
             interpreter.interpret(&statements);
             true
         }

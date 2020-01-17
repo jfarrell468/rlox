@@ -45,9 +45,48 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Vec<Statement<'a>>, Box<dyn Error + 'a>> {
         let mut statements: Vec<Statement<'a>> = Vec::new();
         while !self.is_at_end() {
-            statements.push(self.statement()?);
+            statements.push(self.declaration()?);
         }
         Ok(statements)
+    }
+    fn declaration(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
+        match self.peek().tokentype {
+            TokenType::Var => {
+                self.advance();
+                self.var_declaration()
+            }
+            _ => self.statement(),
+        }
+    }
+    fn var_declaration(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
+        let name = &self.peek().tokentype;
+        match name {
+            TokenType::Identifier(name) => {
+                self.advance();
+                match self.peek().tokentype {
+                    TokenType::Equal => {
+                        self.advance();
+                        let initializer = self.expression()?;
+                        match self.peek().tokentype {
+                            TokenType::Semicolon => {
+                                self.advance();
+                                Ok(Statement::Var {
+                                    name: name,
+                                    initializer: initializer,
+                                })
+                            }
+                            _ => Err(Box::new(
+                                self.error("Expect ';' after variable declaration."),
+                            )),
+                        }
+                    }
+                    _ => Err(Box::new(
+                        self.error("Expect '=' after declaring variable name."),
+                    )),
+                }
+            }
+            _ => Err(Box::new(self.error("Expect variable name."))),
+        }
     }
     fn statement(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
         match self.peek().tokentype {
@@ -183,6 +222,10 @@ impl<'a> Parser<'a> {
             | TokenType::String(_) => {
                 self.advance();
                 Ok(Expression::Literal(&self.previous().tokentype))
+            }
+            TokenType::Identifier(_) => {
+                self.advance();
+                Ok(Expression::Variable(self.previous()))
             }
             TokenType::LeftParen => {
                 self.advance();
