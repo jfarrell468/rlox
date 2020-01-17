@@ -1,4 +1,5 @@
 mod ast;
+mod interpreter;
 mod parser;
 mod scanner;
 mod token;
@@ -52,6 +53,8 @@ fn run(source: &str) -> Result<(), ()> {
         Ok(expr) => {
             let printer = ast::AstPrinter {};
             println!("{}", expr.accept(&printer));
+            let interpreter = interpreter::Interpreter {};
+            println!("{}", expr.accept(&interpreter));
         }
         Err(x) => {
             println!("{}", x);
