@@ -15,7 +15,7 @@ impl<'a> fmt::Display for ParseError<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "[line {}] Error: {}\n  Context: {} {}",
+            "[line {}] Parse Error: {}\n  Context: {} {}",
             self.cur.line,
             self.message.as_str(),
             self.prev.lexeme,
@@ -118,7 +118,25 @@ impl<'a> Parser<'a> {
         }
     }
     fn expression(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
-        self.equality()
+        self.assignment()
+    }
+    fn assignment(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
+        let expr = self.equality()?;
+        match self.peek().tokentype {
+            TokenType::Equal => {
+                self.advance();
+                //let equals = self.previous();
+                let value = self.assignment()?;
+                match expr {
+                    Expression::Variable(x) => Ok(Expression::Assign {
+                        name: x,
+                        value: Box::new(value),
+                    }),
+                    _ => Err(Box::new(self.error("Invalid assignment target."))),
+                }
+            }
+            _ => Ok(expr),
+        }
     }
     fn equality(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         let mut expr = self.comparison()?;

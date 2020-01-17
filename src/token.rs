@@ -1,3 +1,4 @@
+#[rustfmt::skip]
 #[derive(Debug, Clone)]
 pub enum TokenType<'a> {
     // Single-character tokens.

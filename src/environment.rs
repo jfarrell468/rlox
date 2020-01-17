@@ -47,4 +47,17 @@ impl Environment {
             Some(x) => Ok(x.clone()),
         }
     }
+    pub fn assign<'a>(
+        &mut self,
+        token: &'a Token,
+        value: Value,
+    ) -> Result<(), Box<dyn Error + 'a>> {
+        match self.values.get_mut(token.lexeme) {
+            None => Err(Box::new(VariableError { token: token })),
+            Some(x) => {
+                *x = value;
+                Ok(())
+            }
+        }
+    }
 }

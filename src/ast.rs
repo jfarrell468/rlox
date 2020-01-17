@@ -33,6 +33,10 @@ pub enum Expression<'a> {
         right: Box<Expression<'a>>,
     },
     Variable(&'a Token<'a>),
+    Assign {
+        name: &'a Token<'a>,
+        value: Box<Expression<'a>>,
+    },
 }
 
 pub trait Visitor<T, Output> {
@@ -90,7 +94,10 @@ impl<'a> Visitor<Expression<'a>, String> for AstPrinter {
             Expression::Unary { operator, right } => {
                 self.parenthesize(operator.lexeme, vec![right])
             }
-            Expression::Variable(x) => format!("(var {})", x.lexeme),
+            Expression::Variable(x) => x.lexeme.to_string(),
+            Expression::Assign { name, value } => {
+                format!("(assign {} {})", name.lexeme, value.accept(self)).to_string()
+            }
         }
     }
 }

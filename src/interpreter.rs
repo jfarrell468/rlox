@@ -83,7 +83,13 @@ impl<'a> Visitor<Expression<'a>, Value> for Interpreter {
                     },
                 }
             }
+            // TODO: Error handling.
             Expression::Variable(token) => self.environment.get(*token).unwrap(),
+            Expression::Assign { name, value } => {
+                let value = self.evaluate(value);
+                self.environment.assign(*name, value.clone()).unwrap();
+                value
+            }
         }
     }
 }
