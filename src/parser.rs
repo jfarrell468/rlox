@@ -5,27 +5,26 @@ use std::fmt;
 use std::fmt::Formatter;
 
 #[derive(Debug)]
-struct ParseError {
+struct ParseError<'a> {
     message: String,
-    line: i32,
-    prev: String,
-    cur: String,
+    prev: &'a Token<'a>,
+    cur: &'a Token<'a>,
 }
 
-impl fmt::Display for ParseError {
+impl<'a> fmt::Display for ParseError<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "[line {}] Error: {}\n  Context: {} {}",
-            self.line,
+            self.cur.line,
             self.message.as_str(),
-            self.prev.as_str(),
-            self.cur.as_str()
+            self.prev.lexeme,
+            self.cur.lexeme
         )
     }
 }
 
-impl<'a> Error for ParseError {
+impl<'a> Error for ParseError<'a> {
     fn description(&self) -> &str {
         &self.message
     }
@@ -43,13 +42,13 @@ impl<'a> Parser<'a> {
             current: 0,
         }
     }
-    pub fn parse(&mut self) -> Result<Expression<'a>, Box<dyn Error>> {
+    pub fn parse(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         self.expression()
     }
-    fn expression(&mut self) -> Result<Expression<'a>, Box<dyn Error>> {
+    fn expression(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         self.equality()
     }
-    fn equality(&mut self) -> Result<Expression<'a>, Box<dyn Error>> {
+    fn equality(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         let mut expr = self.comparison()?;
         loop {
             match self.peek().tokentype {
@@ -68,7 +67,7 @@ impl<'a> Parser<'a> {
         }
         Ok(expr)
     }
-    fn comparison(&mut self) -> Result<Expression<'a>, Box<dyn Error>> {
+    fn comparison(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         let mut expr = self.addition()?;
         loop {
             match self.peek().tokentype {
@@ -90,7 +89,7 @@ impl<'a> Parser<'a> {
         }
         Ok(expr)
     }
-    fn addition(&mut self) -> Result<Expression<'a>, Box<dyn Error>> {
+    fn addition(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         let mut expr = self.multiplication()?;
         loop {
             match self.peek().tokentype {
@@ -109,7 +108,7 @@ impl<'a> Parser<'a> {
         }
         Ok(expr)
     }
-    fn multiplication(&mut self) -> Result<Expression<'a>, Box<dyn Error>> {
+    fn multiplication(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         let mut expr = self.unary()?;
         loop {
             match self.peek().tokentype {
@@ -128,7 +127,7 @@ impl<'a> Parser<'a> {
         }
         Ok(expr)
     }
-    fn unary(&mut self) -> Result<Expression<'a>, Box<dyn Error>> {
+    fn unary(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         match self.peek().tokentype {
             TokenType::Bang | TokenType::Minus => {
                 self.advance();
@@ -142,7 +141,7 @@ impl<'a> Parser<'a> {
             _ => self.primary(),
         }
     }
-    fn primary(&mut self) -> Result<Expression<'a>, Box<dyn Error>> {
+    fn primary(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         match self.peek().tokentype {
             TokenType::False
             | TokenType::True
@@ -163,7 +162,27 @@ impl<'a> Parser<'a> {
                     _ => Err(Box::new(self.error("Expect ')' after expression."))),
                 }
             }
-            _ => Err(Box::new(self.error("Failed to parse expression."))),
+            _ => Err(Box::new(self.error("Expect expression."))),
+        }
+    }
+    fn synchronize(&mut self) {
+        self.advance();
+        while !self.is_at_end() {
+            if let TokenType::Semicolon = self.previous().tokentype {
+                return;
+            }
+            match self.peek().tokentype {
+                TokenType::Class
+                | TokenType::Fun
+                | TokenType::Var
+                | TokenType::For
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return => return,
+                _ => (),
+            }
+            self.advance();
         }
     }
     fn advance(&mut self) -> &'a Token<'a> {
@@ -190,12 +209,11 @@ impl<'a> Parser<'a> {
             })
             .expect("Failed to get previous")
     }
-    fn error(&self, msg: &str) -> ParseError {
+    fn error(&self, msg: &str) -> ParseError<'a> {
         ParseError {
             message: msg.to_string(),
-            line: self.peek().line,
-            prev: self.previous().lexeme.to_string(),
-            cur: self.peek().lexeme.to_string(),
+            prev: self.previous(),
+            cur: self.peek(),
         }
     }
 }
