@@ -29,35 +29,46 @@ impl<'a> Error for VariableError<'a> {
 
 #[derive(Debug)]
 pub struct Environment {
-    values: BTreeMap<String, Value>,
+    values: Vec<BTreeMap<String, Value>>,
 }
 
 impl Environment {
     pub fn new() -> Environment {
         Environment {
-            values: BTreeMap::new(),
+            values: vec![BTreeMap::new()],
         }
+    }
+    pub fn start_block(&mut self) {
+        self.values.push(BTreeMap::new());
+    }
+    pub fn end_block(&mut self) {
+        self.values.pop().unwrap();
     }
     pub fn define(&mut self, name: &str, value: Value) {
-        self.values.insert(name.to_string(), value);
+        self.values
+            .last_mut()
+            .unwrap()
+            .insert(name.to_string(), value);
     }
-    pub fn get<'a>(&self, token: &'a Token) -> Result<Value, Box<dyn Error + 'a>> {
-        match self.values.get(token.lexeme) {
-            None => Err(Box::new(VariableError { token: token })),
-            Some(x) => Ok(x.clone()),
-        }
-    }
-    pub fn assign<'a>(
-        &mut self,
-        token: &'a Token,
-        value: Value,
-    ) -> Result<(), Box<dyn Error + 'a>> {
-        match self.values.get_mut(token.lexeme) {
-            None => Err(Box::new(VariableError { token: token })),
-            Some(x) => {
-                *x = value;
-                Ok(())
+    pub fn get<'b>(&self, token: &'b Token) -> Result<Value, Box<dyn Error + 'b>> {
+        for cur in self.values.iter().rev() {
+            if let Some(x) = cur.get(token.lexeme) {
+                return Ok(x.clone());
             }
         }
+        Err(Box::new(VariableError { token: token }))
+    }
+    pub fn assign<'b>(
+        &mut self,
+        token: &'b Token,
+        value: Value,
+    ) -> Result<(), Box<dyn Error + 'b>> {
+        for cur in self.values.iter_mut().rev() {
+            if let Some(x) = cur.get_mut(token.lexeme) {
+                *x = value;
+                return Ok(());
+            }
+        }
+        Err(Box::new(VariableError { token: token }))
     }
 }

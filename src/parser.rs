@@ -94,7 +94,27 @@ impl<'a> Parser<'a> {
                 self.advance();
                 self.print_statement()
             }
+            TokenType::LeftBrace => {
+                self.advance();
+                self.block()
+            }
             _ => self.expression_statement(),
+        }
+    }
+    fn block(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
+        let mut statements: Vec<Statement<'a>> = Vec::new();
+        while !self.is_at_end() {
+            if let TokenType::RightBrace = self.peek().tokentype {
+                break;
+            }
+            statements.push(self.declaration()?);
+        }
+        match self.peek().tokentype {
+            TokenType::RightBrace => {
+                self.advance();
+                Ok(Statement::Block(statements))
+            }
+            _ => Err(Box::new(self.error("Expect '}' after block"))),
         }
     }
     fn print_statement(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {

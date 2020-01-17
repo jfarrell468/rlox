@@ -107,6 +107,13 @@ impl<'a> Visitor<Statement<'a>, ()> for Interpreter {
                 let val = self.evaluate(initializer);
                 self.environment.define(*name, val);
             }
+            Statement::Block(stmts) => {
+                self.environment.start_block();
+                for stmt in stmts {
+                    self.execute(stmt);
+                }
+                self.environment.end_block();
+            }
         }
     }
 }

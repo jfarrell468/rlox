@@ -56,6 +56,7 @@ pub enum Statement<'a> {
         name: &'a str,
         initializer: Expression<'a>,
     },
+    Block(Vec<Statement<'a>>),
 }
 
 impl<'a> Statement<'a> {
