@@ -21,6 +21,8 @@ pub enum TokenType<'a> {
     EOF
 }
 
+pub const TRUE_TOKEN: TokenType = TokenType::True;
+
 #[derive(Debug)]
 pub struct Token<'a> {
     pub tokentype: TokenType<'a>,

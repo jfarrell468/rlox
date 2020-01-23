@@ -9,6 +9,7 @@ pub enum Value {
     Number(f64),
     String(String),
 }
+
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
@@ -28,6 +29,11 @@ pub enum Expression<'a> {
     },
     Grouping(Box<Expression<'a>>),
     Literal(&'a TokenType<'a>),
+    Logical {
+        left: Box<Expression<'a>>,
+        operator: &'a Token<'a>,
+        right: Box<Expression<'a>>,
+    },
     Unary {
         operator: &'a Token<'a>,
         right: Box<Expression<'a>>,
@@ -57,6 +63,15 @@ pub enum Statement<'a> {
         initializer: Expression<'a>,
     },
     Block(Vec<Statement<'a>>),
+    If {
+        condition: Expression<'a>,
+        then_branch: Box<Statement<'a>>,
+        else_branch: Option<Box<Statement<'a>>>,
+    },
+    While {
+        condition: Expression<'a>,
+        body: Box<Statement<'a>>,
+    },
 }
 
 impl<'a> Statement<'a> {
@@ -66,6 +81,7 @@ impl<'a> Statement<'a> {
 }
 
 pub struct AstPrinter {}
+
 impl AstPrinter {
     fn parenthesize(&mut self, name: &str, args: Vec<&Expression>) -> String {
         let mut x = String::from("(");
@@ -78,6 +94,7 @@ impl AstPrinter {
         x
     }
 }
+
 impl<'a> Visitor<Expression<'a>, String> for AstPrinter {
     fn visit(&mut self, n: &Expression) -> String {
         match n {
@@ -99,6 +116,11 @@ impl<'a> Visitor<Expression<'a>, String> for AstPrinter {
             Expression::Assign { name, value } => {
                 format!("(assign {} {})", name.lexeme, value.accept(self)).to_string()
             }
+            Expression::Logical {
+                left,
+                operator,
+                right,
+            } => self.parenthesize(operator.lexeme, vec![left, right]),
         }
     }
 }

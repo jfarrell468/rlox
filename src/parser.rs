@@ -1,5 +1,5 @@
 use super::ast::{Expression, Statement};
-use super::token::{Token, TokenType};
+use super::token::{Token, TokenType, TRUE_TOKEN};
 use std::error::Error;
 use std::fmt;
 use std::fmt::Formatter;
@@ -90,6 +90,10 @@ impl<'a> Parser<'a> {
     }
     fn statement(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
         match self.peek().tokentype {
+            TokenType::If => {
+                self.advance();
+                self.if_statement()
+            }
             TokenType::Print => {
                 self.advance();
                 self.print_statement()
@@ -98,7 +102,126 @@ impl<'a> Parser<'a> {
                 self.advance();
                 self.block()
             }
+            TokenType::While => {
+                self.advance();
+                self.while_statement()
+            }
+            TokenType::For => {
+                self.advance();
+                self.for_statement()
+            }
             _ => self.expression_statement(),
+        }
+    }
+    fn for_statement(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
+        match self.peek().tokentype {
+            TokenType::LeftParen => {
+                self.advance();
+                let initializer: Option<Statement> = match self.peek().tokentype {
+                    TokenType::Semicolon => {
+                        self.advance();
+                        None
+                    }
+                    TokenType::Var => {
+                        self.advance();
+                        Some(self.var_declaration()?)
+                    }
+                    _ => Some(self.expression_statement()?),
+                };
+
+                let condition = match self.peek().tokentype {
+                    TokenType::Semicolon => Expression::Literal(&TRUE_TOKEN),
+                    _ => self.expression()?,
+                };
+                match self.peek().tokentype {
+                    TokenType::Semicolon => {
+                        self.advance();
+                    }
+                    _ => {
+                        return Err(Box::new(self.error("Expect ';' after for loop condition.")));
+                    }
+                }
+
+                let increment: Option<Expression> = match self.peek().tokentype {
+                    TokenType::RightParen => None,
+                    _ => Some(self.expression()?),
+                };
+                match self.peek().tokentype {
+                    TokenType::RightParen => {
+                        self.advance();
+                    }
+                    _ => {
+                        return Err(Box::new(self.error("Expect ')' after for loop clauses.")));
+                    }
+                }
+
+                let mut body = self.statement()?;
+
+                if let Some(x) = increment {
+                    body = Statement::Block(vec![body, Statement::Expression(x)])
+                }
+                body = Statement::While {
+                    condition: condition,
+                    body: Box::new(body),
+                };
+                match initializer {
+                    None => Ok(body),
+                    Some(x) => Ok(Statement::Block(vec![x, body])),
+                }
+            }
+            _ => Err(Box::new(self.error("Expect '(' after 'for'."))),
+        }
+    }
+    fn while_statement(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
+        match self.peek().tokentype {
+            TokenType::LeftParen => {
+                self.advance();
+                let condition = self.expression()?;
+                match self.peek().tokentype {
+                    TokenType::RightParen => {
+                        self.advance();
+                        let body = self.statement()?;
+                        Ok(Statement::While {
+                            condition: condition,
+                            body: Box::new(body),
+                        })
+                    }
+                    _ => Err(Box::new(self.error("Expect ')' after if condition."))),
+                }
+            }
+            _ => Err(Box::new(self.error("Expect '(' after 'if'."))),
+        }
+    }
+    fn if_statement(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
+        match self.peek().tokentype {
+            TokenType::LeftParen => {
+                self.advance();
+                let condition = self.expression()?;
+                match self.peek().tokentype {
+                    TokenType::RightParen => {
+                        self.advance();
+                        let then_branch = self.statement()?;
+                        match self.peek().tokentype {
+                            TokenType::Else => {
+                                self.advance();
+                                let else_branch = self.statement()?;
+                                Ok(Statement::If {
+                                    condition: condition,
+                                    then_branch: Box::new(then_branch),
+                                    else_branch: Some(Box::new(else_branch)),
+                                })
+                            }
+                            _ => Ok(Statement::If {
+                                condition: condition,
+                                then_branch: Box::new(then_branch),
+                                else_branch: None,
+                            }),
+                        }
+                    }
+                    _ => Err(Box::new(self.error("Expect ')' after if condition."))),
+                }
+            }
+            _ => Err(Box::new(self.error("Expect '(' after 'if'."))),
         }
     }
     fn block(&mut self) -> Result<Statement<'a>, Box<dyn Error + 'a>> {
@@ -141,7 +264,7 @@ impl<'a> Parser<'a> {
         self.assignment()
     }
     fn assignment(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
-        let expr = self.equality()?;
+        let expr = self.or()?;
         match self.peek().tokentype {
             TokenType::Equal => {
                 self.advance();
@@ -157,6 +280,44 @@ impl<'a> Parser<'a> {
             }
             _ => Ok(expr),
         }
+    }
+    fn or(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
+        let mut expr = self.and()?;
+        loop {
+            match self.peek().tokentype {
+                TokenType::Or => {
+                    self.advance();
+                    let operator = self.previous();
+                    let right = self.and()?;
+                    expr = Expression::Logical {
+                        left: Box::new(expr),
+                        operator: operator,
+                        right: Box::new(right),
+                    };
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
+    }
+    fn and(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
+        let mut expr = self.equality()?;
+        loop {
+            match self.peek().tokentype {
+                TokenType::And => {
+                    self.advance();
+                    let operator = self.previous();
+                    let right = self.equality()?;
+                    expr = Expression::Logical {
+                        left: Box::new(expr),
+                        operator: operator,
+                        right: Box::new(right),
+                    };
+                }
+                _ => break,
+            }
+        }
+        Ok(expr)
     }
     fn equality(&mut self) -> Result<Expression<'a>, Box<dyn Error + 'a>> {
         let mut expr = self.comparison()?;

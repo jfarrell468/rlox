@@ -5,6 +5,7 @@ use super::token::TokenType;
 pub struct Interpreter {
     environment: Environment,
 }
+
 impl<'a> Visitor<Expression<'a>, Value> for Interpreter {
     fn visit(&mut self, expr: &Expression) -> Value {
         match expr {
@@ -90,9 +91,34 @@ impl<'a> Visitor<Expression<'a>, Value> for Interpreter {
                 self.environment.assign(*name, value.clone()).unwrap();
                 value
             }
+            Expression::Logical {
+                left,
+                operator,
+                right,
+            } => {
+                let left = self.evaluate(left);
+                match operator.tokentype {
+                    TokenType::Or => {
+                        if is_truthy(&left) {
+                            left
+                        } else {
+                            self.evaluate(right)
+                        }
+                    }
+                    TokenType::And => {
+                        if !is_truthy(&left) {
+                            left
+                        } else {
+                            self.evaluate(right)
+                        }
+                    }
+                    _ => Value::Nil,
+                }
+            }
         }
     }
 }
+
 impl<'a> Visitor<Statement<'a>, ()> for Interpreter {
     fn visit(&mut self, stmt: &Statement) {
         match stmt {
@@ -114,9 +140,26 @@ impl<'a> Visitor<Statement<'a>, ()> for Interpreter {
                 }
                 self.environment.end_block();
             }
+            Statement::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                if is_truthy(&self.evaluate(condition)) {
+                    self.execute(then_branch);
+                } else if let Some(else_branch) = else_branch {
+                    self.execute(else_branch);
+                }
+            }
+            Statement::While { condition, body } => {
+                while is_truthy(&self.evaluate(condition)) {
+                    self.execute(body);
+                }
+            }
         }
     }
 }
+
 impl Interpreter {
     pub fn new() -> Interpreter {
         Interpreter {
@@ -135,6 +178,7 @@ impl Interpreter {
         }
     }
 }
+
 fn is_truthy(x: &Value) -> bool {
     match x {
         Value::Nil => false,
@@ -143,6 +187,7 @@ fn is_truthy(x: &Value) -> bool {
         Value::String(_) => true,
     }
 }
+
 // TODO: This isn't wired in correctly.
 fn is_equal(lv: &Value, rv: &Value) -> bool {
     match lv {
