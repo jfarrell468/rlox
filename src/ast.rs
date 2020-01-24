@@ -84,10 +84,10 @@ pub enum Statement {
         body: Box<Statement>,
     },
     Function(Rc<Callable>),
-    Return{
+    Return {
         keyword: Token,
-        value: Expression
-    }
+        value: Expression,
+    },
 }
 
 impl Statement {
@@ -147,11 +147,8 @@ impl Visitor<Expression, String> for AstPrinter {
                     foo.push(bar)
                 }
                 let baz = self.parenthesize("call", vec![callee]);
-                self.parenthesize(
-                    baz.as_str(),
-                    foo,
-                )
-            },
+                self.parenthesize(baz.as_str(), foo)
+            }
         }
     }
 }

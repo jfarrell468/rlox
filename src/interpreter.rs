@@ -187,7 +187,7 @@ impl Visitor<Statement, ()> for Interpreter {
             Statement::Function(callable) => self
                 .environment
                 .define(&callable.name, Value::Callable(callable.clone())),
-            Statement::Return{ keyword, value } => {
+            Statement::Return { keyword, value } => {
                 let val = self.evaluate(value);
                 unimplemented!("Return not implemented");
             }

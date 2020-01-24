@@ -179,20 +179,22 @@ impl<'a> Parser<'a> {
     fn return_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
         let keyword = self.previous().clone();
         let expr = match self.peek().tokentype {
-            TokenType::Semicolon => Expression::Literal(Token{
+            TokenType::Semicolon => Expression::Literal(Token {
                 tokentype: TokenType::Nil,
                 lexeme: "".to_string(),
-                line: 0
+                line: 0,
             }),
-            _ => self.expression()?
+            _ => self.expression()?,
         };
         match self.peek().tokentype {
             TokenType::Semicolon => {
                 self.advance();
-                Ok(Statement::Return { keyword: keyword, value: expr })
+                Ok(Statement::Return {
+                    keyword: keyword,
+                    value: expr,
+                })
             }
-            _ => Err(Box::new(
-                self.error("Expect ';' after return value")))
+            _ => Err(Box::new(self.error("Expect ';' after return value"))),
         }
     }
     fn for_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
