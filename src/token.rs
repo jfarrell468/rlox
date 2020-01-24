@@ -1,6 +1,6 @@
 #[rustfmt::skip]
 #[derive(Debug, Clone)]
-pub enum TokenType<'a> {
+pub enum TokenType {
     // Single-character tokens.
     LeftParen, RightParen, LeftBrace, RightBrace,
     Comma, Dot, Minus, Plus, Semicolon, Slash, Star,
@@ -12,7 +12,7 @@ pub enum TokenType<'a> {
     Less, LessEqual,
 
     // Literals.
-    Identifier(&'a str), String(&'a str), Number(f64),
+    Identifier(String), String(String), Number(f64),
 
     // Keywords.
     And, Class, Else, False, Fun, For, If, Nil, Or,
@@ -21,11 +21,9 @@ pub enum TokenType<'a> {
     EOF
 }
 
-pub const TRUE_TOKEN: TokenType = TokenType::True;
-
-#[derive(Debug)]
-pub struct Token<'a> {
-    pub tokentype: TokenType<'a>,
-    pub lexeme: &'a str,
+#[derive(Debug, Clone)]
+pub struct Token {
+    pub tokentype: TokenType,
+    pub lexeme: String,
     pub line: i32,
 }

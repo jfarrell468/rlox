@@ -1,13 +1,16 @@
-use super::token::{Token, TokenType};
+use crate::callable::Callable;
+use crate::token::{Token, TokenType};
 use std::fmt;
 use std::fmt::Formatter;
+use std::rc::Rc;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Value {
     Nil,
     Boolean(bool),
     Number(f64),
     String(String),
+    Callable(Rc<Callable>),
 }
 
 impl fmt::Display for Value {
@@ -17,31 +20,38 @@ impl fmt::Display for Value {
             Value::Boolean(x) => write!(f, "{}", x),
             Value::Number(x) => write!(f, "{}", x),
             Value::String(x) => write!(f, "{}", x),
+            Value::Callable(x) => write!(f, "{}", x),
         }
     }
 }
 
-pub enum Expression<'a> {
+#[derive(Debug)]
+pub enum Expression {
     Binary {
-        left: Box<Expression<'a>>,
-        operator: &'a Token<'a>,
-        right: Box<Expression<'a>>,
+        left: Box<Expression>,
+        operator: Token,
+        right: Box<Expression>,
     },
-    Grouping(Box<Expression<'a>>),
-    Literal(&'a TokenType<'a>),
+    Grouping(Box<Expression>),
+    Literal(Token),
     Logical {
-        left: Box<Expression<'a>>,
-        operator: &'a Token<'a>,
-        right: Box<Expression<'a>>,
+        left: Box<Expression>,
+        operator: Token,
+        right: Box<Expression>,
     },
     Unary {
-        operator: &'a Token<'a>,
-        right: Box<Expression<'a>>,
+        operator: Token,
+        right: Box<Expression>,
     },
-    Variable(&'a Token<'a>),
+    Variable(Token),
     Assign {
-        name: &'a Token<'a>,
-        value: Box<Expression<'a>>,
+        name: Token,
+        value: Box<Expression>,
+    },
+    Call {
+        callee: Box<Expression>,
+        paren: Token,
+        arguments: Vec<Expression>,
     },
 }
 
@@ -49,33 +59,39 @@ pub trait Visitor<T, Output> {
     fn visit(&mut self, n: &T) -> Output;
 }
 
-impl<'a> Expression<'a> {
-    pub fn accept<T>(&self, v: &mut Visitor<Expression<'a>, T>) -> T {
+impl Expression {
+    pub fn accept<T>(&self, v: &mut Visitor<Expression, T>) -> T {
         v.visit(self)
     }
 }
 
-pub enum Statement<'a> {
-    Print(Expression<'a>),
-    Expression(Expression<'a>),
+#[derive(Debug)]
+pub enum Statement {
+    Print(Expression),
+    Expression(Expression),
     Var {
-        name: &'a str,
-        initializer: Expression<'a>,
+        name: String,
+        initializer: Expression,
     },
-    Block(Vec<Statement<'a>>),
+    Block(Vec<Statement>),
     If {
-        condition: Expression<'a>,
-        then_branch: Box<Statement<'a>>,
-        else_branch: Option<Box<Statement<'a>>>,
+        condition: Expression,
+        then_branch: Box<Statement>,
+        else_branch: Option<Box<Statement>>,
     },
     While {
-        condition: Expression<'a>,
-        body: Box<Statement<'a>>,
+        condition: Expression,
+        body: Box<Statement>,
     },
+    Function(Rc<Callable>),
+    Return{
+        keyword: Token,
+        value: Expression
+    }
 }
 
-impl<'a> Statement<'a> {
-    pub fn accept<T>(&self, v: &mut Visitor<Statement<'a>, T>) -> T {
+impl Statement {
+    pub fn accept<T>(&self, v: &mut Visitor<Statement, T>) -> T {
         v.visit(self)
     }
 }
@@ -95,22 +111,22 @@ impl AstPrinter {
     }
 }
 
-impl<'a> Visitor<Expression<'a>, String> for AstPrinter {
+impl Visitor<Expression, String> for AstPrinter {
     fn visit(&mut self, n: &Expression) -> String {
         match n {
             Expression::Binary {
                 left,
                 operator,
                 right,
-            } => self.parenthesize(operator.lexeme, vec![left, right]),
+            } => self.parenthesize(&operator.lexeme, vec![left, right]),
             Expression::Grouping(x) => self.parenthesize("group", vec![x]),
-            Expression::Literal(x) => match x {
-                TokenType::String(y) => y.to_string(),
-                TokenType::Number(y) => format!("{}", y).to_string(),
+            Expression::Literal(x) => match &x.tokentype {
+                TokenType::String(y) => y.clone(),
+                TokenType::Number(y) => format!("{}", y),
                 _ => String::from(""),
             },
             Expression::Unary { operator, right } => {
-                self.parenthesize(operator.lexeme, vec![right])
+                self.parenthesize(&operator.lexeme, vec![right])
             }
             Expression::Variable(x) => x.lexeme.to_string(),
             Expression::Assign { name, value } => {
@@ -120,7 +136,22 @@ impl<'a> Visitor<Expression<'a>, String> for AstPrinter {
                 left,
                 operator,
                 right,
-            } => self.parenthesize(operator.lexeme, vec![left, right]),
+            } => self.parenthesize(&operator.lexeme, vec![left, right]),
+            Expression::Call {
+                callee,
+                paren,
+                arguments,
+            } => {
+                let mut foo: Vec<&Expression> = Vec::new();
+                for bar in arguments {
+                    foo.push(bar)
+                }
+                let baz = self.parenthesize("call", vec![callee]);
+                self.parenthesize(
+                    baz.as_str(),
+                    foo,
+                )
+            },
         }
     }
 }
@@ -134,21 +165,27 @@ mod ast_tests {
     fn basic_ast_test() {
         let expression = Expression::Binary {
             left: Box::new(Expression::Unary {
-                operator: &Token {
+                operator: Token {
                     tokentype: TokenType::Minus,
-                    lexeme: "-",
+                    lexeme: String::from("-"),
                     line: 1,
                 },
-                right: Box::new(Expression::Literal(&TokenType::Number(123.0))),
+                right: Box::new(Expression::Literal(Token {
+                    tokentype: TokenType::Number(123.0),
+                    lexeme: String::from("123.0"),
+                    line: 1,
+                })),
             }),
-            operator: &Token {
+            operator: Token {
                 tokentype: TokenType::Star,
-                lexeme: "*",
+                lexeme: String::from("*"),
                 line: 1,
             },
-            right: Box::new(Expression::Grouping(Box::new(Expression::Literal(
-                &TokenType::Number(45.67),
-            )))),
+            right: Box::new(Expression::Grouping(Box::new(Expression::Literal(Token {
+                tokentype: TokenType::Number(45.67),
+                lexeme: String::from("45.67"),
+                line: 1,
+            })))),
         };
         let visitor = AstPrinter {};
         assert_eq!(expression.accept(&visitor), "(* (- 123) (group 45.67))");

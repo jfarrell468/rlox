@@ -1,4 +1,5 @@
 mod ast;
+mod callable;
 mod environment;
 mod interpreter;
 mod parser;
@@ -42,14 +43,11 @@ fn run_prompt() {
 }
 
 fn run(source: &str) -> bool {
-    let mut scanner = scanner::Scanner::from_string(source);
-    let (tokens, success) = scanner.scan_tokens();
+    let (tokens, success) = scanner::scan_tokens(source);
     if !success {
         return success;
     }
-    let mut parser = parser::Parser::new(tokens);
-    let parse = parser.parse();
-    match parse {
+    match parser::parse(&tokens) {
         Ok(statements) => {
             let mut interpreter = interpreter::Interpreter::new();
             interpreter.interpret(&statements);

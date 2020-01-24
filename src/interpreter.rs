@@ -1,16 +1,17 @@
-use super::ast::{Expression, Statement, Value, Visitor};
-use super::environment::Environment;
-use super::token::TokenType;
+use crate::ast::{Expression, Statement, Value, Visitor};
+use crate::environment::Environment;
+use crate::token::TokenType;
+use std::rc::Rc;
 
 pub struct Interpreter {
-    environment: Environment,
+    pub environment: Environment,
 }
 
-impl<'a> Visitor<Expression<'a>, Value> for Interpreter {
+impl Visitor<Expression, Value> for Interpreter {
     fn visit(&mut self, expr: &Expression) -> Value {
         match expr {
-            Expression::Literal(x) => match x {
-                TokenType::String(y) => Value::String(y.to_string()),
+            Expression::Literal(x) => match &x.tokentype {
+                TokenType::String(y) => Value::String(y.clone()),
                 TokenType::Number(y) => Value::Number(*y),
                 TokenType::False => Value::Boolean(false),
                 TokenType::True => Value::Boolean(true),
@@ -82,13 +83,17 @@ impl<'a> Visitor<Expression<'a>, Value> for Interpreter {
                         },
                         _ => Value::Nil,
                     },
+                    // Callable?
+                    _ => Value::Nil,
                 }
             }
             // TODO: Error handling.
-            Expression::Variable(token) => self.environment.get(*token).unwrap(),
+            Expression::Variable(token) => self.environment.get(token.clone()).unwrap(),
             Expression::Assign { name, value } => {
                 let value = self.evaluate(value);
-                self.environment.assign(*name, value.clone()).unwrap();
+                self.environment
+                    .assign(name.clone(), value.clone())
+                    .unwrap();
                 value
             }
             Expression::Logical {
@@ -115,11 +120,34 @@ impl<'a> Visitor<Expression<'a>, Value> for Interpreter {
                     _ => Value::Nil,
                 }
             }
+            Expression::Call {
+                callee,
+                paren,
+                arguments,
+            } => {
+                let evaluated_callee = self.evaluate(callee);
+                let mut evaluated_arguments: Vec<Value> = Vec::new();
+                for argument in arguments {
+                    evaluated_arguments.push(self.evaluate(argument));
+                }
+                match evaluated_callee {
+                    Value::Callable(function) => {
+                        if function.arity() != evaluated_arguments.len() {
+                            // TODO: Error handling.
+                            Value::Nil
+                        } else {
+                            function.call(self, &evaluated_arguments);
+                            Value::Nil
+                        }
+                    }
+                    _ => Value::Nil,
+                }
+            }
         }
     }
 }
 
-impl<'a> Visitor<Statement<'a>, ()> for Interpreter {
+impl Visitor<Statement, ()> for Interpreter {
     fn visit(&mut self, stmt: &Statement) {
         match stmt {
             Statement::Print(e) => {
@@ -131,7 +159,7 @@ impl<'a> Visitor<Statement<'a>, ()> for Interpreter {
             }
             Statement::Var { name, initializer } => {
                 let val = self.evaluate(initializer);
-                self.environment.define(*name, val);
+                self.environment.define(name, val);
             }
             Statement::Block(stmts) => {
                 self.environment.start_block();
@@ -156,6 +184,13 @@ impl<'a> Visitor<Statement<'a>, ()> for Interpreter {
                     self.execute(body);
                 }
             }
+            Statement::Function(callable) => self
+                .environment
+                .define(&callable.name, Value::Callable(callable.clone())),
+            Statement::Return{ keyword, value } => {
+                let val = self.evaluate(value);
+                unimplemented!("Return not implemented");
+            }
         }
     }
 }
@@ -169,7 +204,7 @@ impl Interpreter {
     fn evaluate(&mut self, expr: &Expression) -> Value {
         expr.accept(self)
     }
-    fn execute(&mut self, stmt: &Statement) {
+    pub fn execute(&mut self, stmt: &Statement) {
         stmt.accept(self);
     }
     pub fn interpret(&mut self, statements: &Vec<Statement>) {
@@ -185,6 +220,7 @@ fn is_truthy(x: &Value) -> bool {
         Value::Boolean(x) => *x,
         Value::Number(_) => true,
         Value::String(_) => true,
+        Value::Callable(_) => false,
     }
 }
 
@@ -207,5 +243,6 @@ fn is_equal(lv: &Value, rv: &Value) -> bool {
             Value::String(r) => l == r,
             _ => false,
         },
+        _ => false,
     }
 }

@@ -1,4 +1,4 @@
-use super::token::{Token, TokenType};
+use crate::token::{Token, TokenType};
 use phf::phf_map;
 use std::error::Error;
 use std::fmt;
@@ -30,48 +30,47 @@ impl Error for ScanError {
 }
 
 // Note: current becomes self.iter.peek()?.0
-pub struct Scanner<'a> {
+struct Scanner<'a> {
     source: &'a str,
-    tokens: Vec<Token<'a>>,
     iter: Peekable<CharIndices<'a>>,
     start: usize,
     line: i32,
 }
 
-impl<'a> Scanner<'a> {
-    pub fn from_string(source: &str) -> Scanner {
-        Scanner {
-            source: source,
-            tokens: Vec::new(),
-            iter: source.char_indices().peekable(),
-            start: 0,
-            line: 1,
-        }
-    }
-    pub fn scan_tokens(&mut self) -> (&Vec<Token>, bool) {
-        let mut success = true;
-        while let Some((idx, _)) = self.iter.peek() {
-            self.start = *idx;
-            match self.scan_token() {
-                Ok(maybe_token) => {
-                    if let Some(token) = maybe_token {
-                        self.tokens.push(token);
-                    }
-                }
-                Err(e) => {
-                    println!("{}", e);
-                    success = false;
+pub fn scan_tokens(source: &str) -> (Vec<Token>, bool) {
+    let mut scanner = Scanner {
+        source: source,
+        iter: source.char_indices().peekable(),
+        start: 0,
+        line: 1,
+    };
+    let mut tokens: Vec<Token> = Vec::new();
+
+    let mut success = true;
+    while let Some((idx, _)) = scanner.iter.peek() {
+        scanner.start = *idx;
+        match scanner.scan_token() {
+            Ok(maybe_token) => {
+                if let Some(token) = maybe_token {
+                    tokens.push(token);
                 }
             }
+            Err(e) => {
+                println!("{}", e);
+                success = false;
+            }
         }
-        self.tokens.push(Token {
-            tokentype: TokenType::EOF,
-            lexeme: "",
-            line: self.line,
-        });
-        (&self.tokens, success)
     }
-    fn scan_token(&mut self) -> Result<Option<Token<'a>>, Box<dyn Error>> {
+    tokens.push(Token {
+        tokentype: TokenType::EOF,
+        lexeme: String::from(""),
+        line: scanner.line,
+    });
+    (tokens, success)
+}
+
+impl<'a> Scanner<'a> {
+    fn scan_token(&mut self) -> Result<Option<Token>, Box<dyn Error>> {
         match self.advance()?.1 {
             '(' => Ok(Some(self.token(TokenType::LeftParen))),
             ')' => Ok(Some(self.token(TokenType::RightParen))),
@@ -148,11 +147,11 @@ impl<'a> Scanner<'a> {
             Some((idx, _)) => *idx,
         }
     }
-    fn token(&mut self, token_type: TokenType<'a>) -> Token<'a> {
+    fn token(&mut self, token_type: TokenType) -> Token {
         let current = self.current();
         Token {
             tokentype: token_type,
-            lexeme: &self.source[self.start..current],
+            lexeme: self.source[self.start..current].to_string(),
             line: self.line,
         }
     }
@@ -171,7 +170,7 @@ impl<'a> Scanner<'a> {
             message: "Failed to advance".to_string(),
         }))
     }
-    fn string(&mut self) -> Result<Token<'a>, Box<dyn Error>> {
+    fn string(&mut self) -> Result<Token, Box<dyn Error>> {
         while let Some((_, c)) = self.iter.peek() {
             match c {
                 '"' => {
@@ -188,9 +187,11 @@ impl<'a> Scanner<'a> {
         }
         self.advance()?;
         let current = self.current();
-        Ok(self.token(TokenType::String(&self.source[self.start + 1..current - 1])))
+        Ok(self.token(TokenType::String(
+            self.source[self.start + 1..current - 1].to_string(),
+        )))
     }
-    fn number(&mut self) -> Result<Token<'a>, Box<dyn Error>> {
+    fn number(&mut self) -> Result<Token, Box<dyn Error>> {
         while let Some((_, c)) = self.iter.peek() {
             match c {
                 '0'..='9' => {
@@ -230,7 +231,7 @@ impl<'a> Scanner<'a> {
         let current = self.current();
         Ok(self.token(TokenType::Number(self.source[self.start..current].parse()?)))
     }
-    fn identifier(&mut self) -> Result<Token<'a>, Box<dyn Error>> {
+    fn identifier(&mut self) -> Result<Token, Box<dyn Error>> {
         while let Some((_, c)) = self.iter.peek() {
             match c {
                 '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' => {
@@ -243,7 +244,9 @@ impl<'a> Scanner<'a> {
         }
         let current = self.current();
         match KEYWORDS.get(&self.source[self.start..current]) {
-            None => Ok(self.token(TokenType::Identifier(&self.source[self.start..current]))),
+            None => Ok(self.token(TokenType::Identifier(
+                self.source[self.start..current].to_string(),
+            ))),
             Some(x) => Ok(self.token(x.clone())),
         }
     }

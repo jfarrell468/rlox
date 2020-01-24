@@ -1,5 +1,5 @@
-use super::ast::Value;
-use super::token::Token;
+use crate::ast::Value;
+use crate::token::Token;
 use std::error::Error;
 use std::fmt;
 use std::fmt::Formatter;
@@ -7,11 +7,11 @@ use std::fmt::Formatter;
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
-pub struct VariableError<'a> {
-    token: &'a Token<'a>,
+pub struct VariableError {
+    token: Token,
 }
 
-impl<'a> fmt::Display for VariableError<'a> {
+impl<'a> fmt::Display for VariableError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -21,13 +21,12 @@ impl<'a> fmt::Display for VariableError<'a> {
     }
 }
 
-impl<'a> Error for VariableError<'a> {
+impl<'a> Error for VariableError {
     fn description(&self) -> &str {
         "Undefined variable"
     }
 }
 
-#[derive(Debug)]
 pub struct Environment {
     values: Vec<BTreeMap<String, Value>>,
 }
@@ -44,27 +43,20 @@ impl Environment {
     pub fn end_block(&mut self) {
         self.values.pop().unwrap();
     }
-    pub fn define(&mut self, name: &str, value: Value) {
-        self.values
-            .last_mut()
-            .unwrap()
-            .insert(name.to_string(), value);
+    pub fn define(&mut self, name: &String, value: Value) {
+        self.values.last_mut().unwrap().insert(name.clone(), value);
     }
-    pub fn get<'b>(&self, token: &'b Token) -> Result<Value, Box<dyn Error + 'b>> {
+    pub fn get(&self, token: Token) -> Result<Value, Box<dyn Error>> {
         for cur in self.values.iter().rev() {
-            if let Some(x) = cur.get(token.lexeme) {
+            if let Some(x) = cur.get(&token.lexeme) {
                 return Ok(x.clone());
             }
         }
         Err(Box::new(VariableError { token: token }))
     }
-    pub fn assign<'b>(
-        &mut self,
-        token: &'b Token,
-        value: Value,
-    ) -> Result<(), Box<dyn Error + 'b>> {
+    pub fn assign(&mut self, token: Token, value: Value) -> Result<(), Box<dyn Error>> {
         for cur in self.values.iter_mut().rev() {
-            if let Some(x) = cur.get_mut(token.lexeme) {
+            if let Some(x) = cur.get_mut(&token.lexeme) {
                 *x = value;
                 return Ok(());
             }
