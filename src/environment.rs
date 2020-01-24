@@ -1,4 +1,5 @@
 use crate::ast::Value;
+use crate::interpreter::ErrorType;
 use crate::token::Token;
 use std::error::Error;
 use std::fmt;
@@ -45,21 +46,21 @@ impl Environment {
     pub fn define(&mut self, name: &String, value: Value) {
         self.values.last_mut().unwrap().insert(name.clone(), value);
     }
-    pub fn get(&self, token: Token) -> Result<Value, Box<dyn Error>> {
+    pub fn get(&self, token: Token) -> Result<Value, ErrorType> {
         for cur in self.values.iter().rev() {
             if let Some(x) = cur.get(&token.lexeme) {
                 return Ok(x.clone());
             }
         }
-        Err(Box::new(VariableError { token: token }))
+        Err(ErrorType::VariableError(VariableError { token: token }))
     }
-    pub fn assign(&mut self, token: Token, value: Value) -> Result<(), Box<dyn Error>> {
+    pub fn assign(&mut self, token: Token, value: Value) -> Result<(), ErrorType> {
         for cur in self.values.iter_mut().rev() {
             if let Some(x) = cur.get_mut(&token.lexeme) {
                 *x = value;
                 return Ok(());
             }
         }
-        Err(Box::new(VariableError { token: token }))
+        Err(ErrorType::VariableError(VariableError { token: token }))
     }
 }

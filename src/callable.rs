@@ -1,5 +1,5 @@
 use crate::ast::{Statement, Value};
-use crate::interpreter::Interpreter;
+use crate::interpreter::{ErrorType, Interpreter};
 use crate::token::Token;
 use std::fmt;
 
@@ -17,7 +17,11 @@ impl fmt::Display for Callable {
 }
 
 impl Callable {
-    pub fn call(&self, interpreter: &mut Interpreter, arguments: &Vec<Value>) {
+    pub fn call(
+        &self,
+        interpreter: &mut Interpreter,
+        arguments: &Vec<Value>,
+    ) -> Result<Value, ErrorType> {
         interpreter.environment.start_block();
 
         for param_and_val in self.params.iter().zip(arguments.iter()) {
@@ -25,8 +29,15 @@ impl Callable {
                 .environment
                 .define(&param_and_val.0.lexeme, param_and_val.1.clone());
         }
-        interpreter.execute(&self.body);
+        let result = interpreter.execute(&self.body);
         interpreter.environment.end_block();
+        match result {
+            Ok(v) => Ok(v),
+            Err(e) => match e {
+                ErrorType::Return(v) => Ok(v.0),
+                _ => Err(e),
+            },
+        }
     }
     pub fn arity(&self) -> usize {
         self.params.len()

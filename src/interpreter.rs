@@ -1,5 +1,5 @@
 use crate::ast::{Expression, Statement, Value, Visitor};
-use crate::environment::Environment;
+use crate::environment::{Environment, VariableError};
 use crate::token::{Token, TokenType};
 use std::error::Error;
 use std::fmt;
@@ -9,7 +9,7 @@ pub struct Interpreter {
 }
 
 #[derive(Debug)]
-struct RuntimeError {
+pub struct RuntimeError {
     message: String,
     token: Option<Token>,
 }
@@ -31,14 +31,14 @@ impl Error for RuntimeError {
     }
 }
 impl RuntimeError {
-    pub fn new(msg: &str, token: Option<Token>) -> Box<RuntimeError> {
-        Box::new(RuntimeError {
+    pub fn new(msg: &str, token: Option<Token>) -> ErrorType {
+        ErrorType::RuntimeError(RuntimeError {
             message: msg.to_string(),
             token,
         })
     }
-    pub fn type_error(expected: &Value, actual: &Value, token: Option<Token>) -> Box<RuntimeError> {
-        Box::new(RuntimeError {
+    pub fn type_error(expected: &Value, actual: &Value, token: Option<Token>) -> ErrorType {
+        ErrorType::RuntimeError(RuntimeError {
             message: format!(
                 "Type error: Expected {}, got {}",
                 expected.type_str(),
@@ -50,7 +50,7 @@ impl RuntimeError {
 }
 
 #[derive(Debug)]
-struct Return(pub Value);
+pub struct Return(pub Value);
 impl fmt::Display for Return {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
@@ -62,8 +62,14 @@ impl Error for Return {
     }
 }
 
-impl Visitor<Expression, Result<Value, Box<dyn Error>>> for Interpreter {
-    fn visit(&mut self, expr: &Expression) -> Result<Value, Box<dyn Error>> {
+pub enum ErrorType {
+    Return(Return),
+    VariableError(VariableError),
+    RuntimeError(RuntimeError),
+}
+
+impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
+    fn visit(&mut self, expr: &Expression) -> Result<Value, ErrorType> {
         match expr {
             Expression::Literal(x) => Ok(match &x.tokentype {
                 TokenType::String(y) => Value::String(y.clone()),
@@ -218,8 +224,7 @@ impl Visitor<Expression, Result<Value, Box<dyn Error>>> for Interpreter {
                                 Some(paren.clone()),
                             ))
                         } else {
-                            function.call(self, &evaluated_arguments);
-                            Ok(Value::Nil)
+                            function.call(self, &evaluated_arguments)
                         }
                     }
                     _ => Err(RuntimeError::new(
@@ -232,49 +237,60 @@ impl Visitor<Expression, Result<Value, Box<dyn Error>>> for Interpreter {
     }
 }
 
-impl Visitor<Statement, ()> for Interpreter {
-    fn visit(&mut self, stmt: &Statement) {
+impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
+    fn visit(&mut self, stmt: &Statement) -> Result<Value, ErrorType> {
         match stmt {
             Statement::Print(e) => {
-                let val = self.evaluate(e).unwrap();
+                let val = self.evaluate(e)?;
                 println!("{}", val);
+                Ok(val)
             }
-            Statement::Expression(e) => {
-                self.evaluate(e).unwrap();
-            }
+            Statement::Expression(e) => self.evaluate(e),
             Statement::Var { name, initializer } => {
-                let val = self.evaluate(initializer).unwrap();
-                self.environment.define(name, val);
+                let val = self.evaluate(initializer)?;
+                self.environment.define(name, val.clone());
+                Ok(val)
             }
             Statement::Block(stmts) => {
+                let mut result = Ok(Value::Nil);
                 self.environment.start_block();
                 for stmt in stmts {
-                    self.execute(stmt);
+                    result = self.execute(stmt);
+                    if let Err(_) = result {
+                        break;
+                    }
                 }
                 self.environment.end_block();
+                result
             }
             Statement::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                if is_truthy(&self.evaluate(condition).unwrap()) {
-                    self.execute(then_branch);
+                if is_truthy(&self.evaluate(condition)?) {
+                    self.execute(then_branch)
                 } else if let Some(else_branch) = else_branch {
-                    self.execute(else_branch);
+                    self.execute(else_branch)
+                } else {
+                    Ok(Value::Nil)
                 }
             }
             Statement::While { condition, body } => {
-                while is_truthy(&self.evaluate(condition).unwrap()) {
-                    self.execute(body);
+                let mut val = Value::Nil;
+                while is_truthy(&self.evaluate(condition)?) {
+                    val = self.execute(body)?.clone();
                 }
+                Ok(val)
             }
-            Statement::Function(callable) => self
-                .environment
-                .define(&callable.name, Value::Callable(callable.clone())),
+            Statement::Function(callable) => {
+                self.environment
+                    .define(&callable.name, Value::Callable(callable.clone()));
+                Ok(Value::Nil)
+            }
             Statement::Return { keyword: _, value } => {
-                let val = self.evaluate(value).unwrap();
-                unimplemented!("Return not implemented");
+                let val = self.evaluate(value)?;
+                Err(ErrorType::Return(Return(val.clone())))
             }
         }
     }
@@ -286,11 +302,11 @@ impl Interpreter {
             environment: Environment::new(),
         }
     }
-    fn evaluate(&mut self, expr: &Expression) -> Result<Value, Box<dyn Error>> {
+    fn evaluate(&mut self, expr: &Expression) -> Result<Value, ErrorType> {
         expr.accept(self)
     }
-    pub fn execute(&mut self, stmt: &Statement) {
-        stmt.accept(self);
+    pub fn execute(&mut self, stmt: &Statement) -> Result<Value, ErrorType> {
+        stmt.accept(self)
     }
     pub fn interpret(&mut self, statements: &Vec<Statement>) {
         for stmt in statements {
