@@ -2,7 +2,6 @@ use crate::ast::Value;
 use crate::token::Token;
 use std::error::Error;
 use std::fmt;
-use std::fmt::Formatter;
 
 use std::collections::BTreeMap;
 
@@ -12,7 +11,7 @@ pub struct VariableError {
 }
 
 impl<'a> fmt::Display for VariableError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "[line {}] Error: Undefined variable '{}'",

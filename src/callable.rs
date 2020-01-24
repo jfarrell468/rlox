@@ -2,8 +2,6 @@ use crate::ast::{Statement, Value};
 use crate::interpreter::Interpreter;
 use crate::token::Token;
 use std::fmt;
-use std::ops::Deref;
-use std::rc::Rc;
 
 #[derive(Debug)]
 pub struct Callable {

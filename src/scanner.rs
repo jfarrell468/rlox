@@ -2,7 +2,6 @@ use crate::token::{Token, TokenType};
 use phf::phf_map;
 use std::error::Error;
 use std::fmt;
-use std::fmt::Formatter;
 use std::iter::Peekable;
 use std::str::CharIndices;
 
@@ -13,7 +12,7 @@ struct ScanError {
 }
 
 impl fmt::Display for ScanError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "[line {}] Scan Error: {}",

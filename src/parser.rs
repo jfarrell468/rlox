@@ -3,7 +3,6 @@ use crate::callable::Callable;
 use crate::token::{Token, TokenType};
 use std::error::Error;
 use std::fmt;
-use std::fmt::Formatter;
 use std::rc::Rc;
 
 #[derive(Debug)]
@@ -14,7 +13,7 @@ struct ParseError {
 }
 
 impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "[line {}] Parse Error: {}\n  Context: {} {}",
@@ -80,17 +79,13 @@ impl<'a> Parser<'a> {
                                     initializer,
                                 })
                             }
-                            _ => Err(Box::new(
-                                self.error("Expect ';' after variable declaration."),
-                            )),
+                            _ => Err(self.error("Expect ';' after variable declaration.")),
                         }
                     }
-                    _ => Err(Box::new(
-                        self.error("Expect '=' after declaring variable name."),
-                    )),
+                    _ => Err(self.error("Expect '=' after declaring variable name.")),
                 }
             }
-            _ => Err(Box::new(self.error("Expect variable name."))),
+            _ => Err(self.error("Expect variable name.")),
         }
     }
     fn function(&mut self, kind: &str) -> Result<Statement, Box<dyn Error>> {
@@ -105,10 +100,10 @@ impl<'a> Parser<'a> {
                             TokenType::RightParen => (),
                             _ => loop {
                                 match self.peek().tokentype.clone() {
-                                    TokenType::Identifier(x) => {
+                                    TokenType::Identifier(_) => {
                                         parameters.push(self.advance().clone());
                                     }
-                                    _ => return Err(Box::new(self.error("Expect parameter name"))),
+                                    _ => return Err(self.error("Expect parameter name")),
                                 }
                                 match self.peek().tokentype {
                                     TokenType::Comma => self.advance(),
@@ -129,22 +124,18 @@ impl<'a> Parser<'a> {
                                             body: body,
                                         })))
                                     }
-                                    _ => Err(Box::new(self.error(
+                                    _ => Err(self.error(
                                         format!("Expect '{{' before {} body", kind).as_str(),
-                                    ))),
+                                    )),
                                 }
                             }
-                            _ => Err(Box::new(self.error("Expect ')' after parameters"))),
+                            _ => Err(self.error("Expect ')' after parameters")),
                         }
                     }
-                    _ => Err(Box::new(
-                        self.error(format!("Expect '(' after {} name", kind).as_str()),
-                    )),
+                    _ => Err(self.error(format!("Expect '(' after {} name", kind).as_str())),
                 }
             }
-            _ => Err(Box::new(
-                self.error(format!("Expect {} name", kind).as_str()),
-            )),
+            _ => Err(self.error(format!("Expect {} name", kind).as_str())),
         }
     }
     fn statement(&mut self) -> Result<Statement, Box<dyn Error>> {
@@ -194,7 +185,7 @@ impl<'a> Parser<'a> {
                     value: expr,
                 })
             }
-            _ => Err(Box::new(self.error("Expect ';' after return value"))),
+            _ => Err(self.error("Expect ';' after return value")),
         }
     }
     fn for_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
@@ -226,7 +217,7 @@ impl<'a> Parser<'a> {
                         self.advance();
                     }
                     _ => {
-                        return Err(Box::new(self.error("Expect ';' after for loop condition.")));
+                        return Err(self.error("Expect ';' after for loop condition."));
                     }
                 }
 
@@ -239,7 +230,7 @@ impl<'a> Parser<'a> {
                         self.advance();
                     }
                     _ => {
-                        return Err(Box::new(self.error("Expect ')' after for loop clauses.")));
+                        return Err(self.error("Expect ')' after for loop clauses."));
                     }
                 }
 
@@ -257,7 +248,7 @@ impl<'a> Parser<'a> {
                     Some(x) => Ok(Statement::Block(vec![x, body])),
                 }
             }
-            _ => Err(Box::new(self.error("Expect '(' after 'for'."))),
+            _ => Err(self.error("Expect '(' after 'for'.")),
         }
     }
     fn while_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
@@ -274,10 +265,10 @@ impl<'a> Parser<'a> {
                             body: Box::new(body),
                         })
                     }
-                    _ => Err(Box::new(self.error("Expect ')' after if condition."))),
+                    _ => Err(self.error("Expect ')' after if condition.")),
                 }
             }
-            _ => Err(Box::new(self.error("Expect '(' after 'if'."))),
+            _ => Err(self.error("Expect '(' after 'if'.")),
         }
     }
     fn if_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
@@ -306,10 +297,10 @@ impl<'a> Parser<'a> {
                             }),
                         }
                     }
-                    _ => Err(Box::new(self.error("Expect ')' after if condition."))),
+                    _ => Err(self.error("Expect ')' after if condition.")),
                 }
             }
-            _ => Err(Box::new(self.error("Expect '(' after 'if'."))),
+            _ => Err(self.error("Expect '(' after 'if'.")),
         }
     }
     fn block(&mut self) -> Result<Statement, Box<dyn Error>> {
@@ -325,7 +316,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Statement::Block(statements))
             }
-            _ => Err(Box::new(self.error("Expect '}' after block"))),
+            _ => Err(self.error("Expect '}' after block")),
         }
     }
     fn print_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
@@ -335,7 +326,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Statement::Print(expr))
             }
-            _ => Err(Box::new(self.error("Expect ';' after value."))),
+            _ => Err(self.error("Expect ';' after value.")),
         }
     }
     fn expression_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
@@ -345,7 +336,7 @@ impl<'a> Parser<'a> {
                 self.advance();
                 Ok(Statement::Expression(expr))
             }
-            _ => Err(Box::new(self.error("Expect ';' after expression."))),
+            _ => Err(self.error("Expect ';' after expression.")),
         }
     }
     fn expression(&mut self) -> Result<Expression, Box<dyn Error>> {
@@ -363,7 +354,7 @@ impl<'a> Parser<'a> {
                         name: x,
                         value: Box::new(value),
                     }),
-                    _ => Err(Box::new(self.error("Invalid assignment target."))),
+                    _ => Err(self.error("Invalid assignment target.")),
                 }
             }
             _ => Ok(expr),
@@ -531,7 +522,7 @@ impl<'a> Parser<'a> {
                     arguments: arguments,
                 })
             }
-            _ => Err(Box::new(self.error("Expect ')' after function arguments."))),
+            _ => Err(self.error("Expect ')' after function arguments.")),
         }
     }
     fn primary(&mut self) -> Result<Expression, Box<dyn Error>> {
@@ -550,10 +541,10 @@ impl<'a> Parser<'a> {
                         self.advance();
                         Ok(Expression::Grouping(Box::new(expr)))
                     }
-                    _ => Err(Box::new(self.error("Expect ')' after expression."))),
+                    _ => Err(self.error("Expect ')' after expression.")),
                 }
             }
-            _ => Err(Box::new(self.error("Expect expression."))),
+            _ => Err(self.error("Expect expression.")),
         }
     }
     fn synchronize(&mut self) {
@@ -600,11 +591,11 @@ impl<'a> Parser<'a> {
             })
             .expect("Failed to get previous")
     }
-    fn error(&self, msg: &str) -> ParseError {
-        ParseError {
+    fn error(&self, msg: &str) -> Box<ParseError> {
+        Box::new(ParseError {
             message: msg.to_string(),
             prev: self.previous().clone(),
             cur: self.peek().clone(),
-        }
+        })
     }
 }

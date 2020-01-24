@@ -4,7 +4,7 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::rc::Rc;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Value {
     Nil,
     Boolean(bool),
@@ -21,6 +21,17 @@ impl fmt::Display for Value {
             Value::Number(x) => write!(f, "{}", x),
             Value::String(x) => write!(f, "{}", x),
             Value::Callable(x) => write!(f, "{}", x),
+        }
+    }
+}
+impl Value {
+    pub fn type_str(&self) -> &str {
+        match self {
+            Value::Nil => "nil",
+            Value::Boolean(_) => "boolean",
+            Value::Number(_) => "number",
+            Value::String(_) => "string",
+            Value::Callable(_) => "callable",
         }
     }
 }
@@ -139,7 +150,7 @@ impl Visitor<Expression, String> for AstPrinter {
             } => self.parenthesize(&operator.lexeme, vec![left, right]),
             Expression::Call {
                 callee,
-                paren,
+                paren: _,
                 arguments,
             } => {
                 let mut foo: Vec<&Expression> = Vec::new();
