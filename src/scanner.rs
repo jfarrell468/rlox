@@ -272,7 +272,7 @@ static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
 
 #[cfg(test)]
 mod scanner_tests {
-    use crate::scanner::Scanner;
+    use crate::scanner;
     use crate::token::TokenType;
 
     // TODO: Just use the "matches" crate.
@@ -287,11 +287,13 @@ mod scanner_tests {
 
     #[test]
     fn basic_scanner_test() {
-        let mut scanner = Scanner::from_string("x = 2");
-        let (tokens, success) = scanner.scan_tokens();
+        let (tokens, success) = scanner::scan_tokens("x = 2");
         assert!(success);
         assert_eq!(tokens.len(), 4);
-        assert!(matches!(tokens[0].tokentype, TokenType::Identifier("x")));
+        assert!(matches!(tokens[0].tokentype, TokenType::Identifier(_)));
+        if let crate::token::TokenType::Identifier(x) = &tokens[0].tokentype {
+            assert_eq!(x, "x")
+        }
         assert!(matches!(tokens[1].tokentype, TokenType::Equal));
         assert!(matches!(tokens[2].tokentype, TokenType::Number(_)));
         if let crate::token::TokenType::Number(x) = tokens[2].tokentype {
@@ -302,8 +304,7 @@ mod scanner_tests {
 
     #[test]
     fn number_parsing() {
-        let mut scanner = Scanner::from_string("1+2");
-        let (tokens, success) = scanner.scan_tokens();
+        let (tokens, success) = scanner::scan_tokens("1+2");
         assert!(success);
         assert_eq!(tokens.len(), 4);
         assert!(matches!(tokens[0].tokentype, TokenType::Number(_)));

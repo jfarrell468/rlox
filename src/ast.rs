@@ -195,7 +195,7 @@ mod ast_tests {
                 line: 1,
             })))),
         };
-        let visitor = AstPrinter {};
-        assert_eq!(expression.accept(&visitor), "(* (- 123) (group 45.67))");
+        let mut visitor = AstPrinter {};
+        assert_eq!(expression.accept(&mut visitor), "(* (- 123) (group 45.67))");
     }
 }

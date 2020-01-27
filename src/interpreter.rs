@@ -62,6 +62,7 @@ impl Error for Return {
     }
 }
 
+#[derive(Debug)]
 pub enum ErrorType {
     Return(Return),
     VariableError(VariableError),
@@ -308,10 +309,12 @@ impl Interpreter {
     pub fn execute(&mut self, stmt: &Statement) -> Result<Value, ErrorType> {
         stmt.accept(self)
     }
-    pub fn interpret(&mut self, statements: &Vec<Statement>) {
+    pub fn interpret(&mut self, statements: &Vec<Statement>) -> Result<Value, ErrorType> {
+        let mut val = Value::Nil;
         for stmt in statements {
-            self.execute(stmt);
+            val = self.execute(stmt)?;
         }
+        Ok(val)
     }
 }
 
@@ -345,5 +348,28 @@ fn is_equal(lv: &Value, rv: &Value) -> bool {
             _ => false,
         },
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod interpreter_tests {
+    use crate::scanner;
+    use crate::parser;
+    use crate::interpreter;
+    use crate::ast::Value;
+
+    #[test]
+    fn basic_test() {
+        let (tokens, success) = scanner::scan_tokens("1+2;");
+        assert!(success);
+        let result = parser::parse(&tokens);
+        assert!(result.is_ok());
+        let mut interpreter = interpreter::Interpreter::new();
+        let val = interpreter.interpret(&result.unwrap());
+        assert!(val.is_ok());
+        match val.unwrap() {
+            Value::Number(x) => assert_eq!(x, 3.0),
+            _ => panic!("Wrong type.")
+        }
     }
 }

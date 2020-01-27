@@ -48,9 +48,51 @@ pub fn parse(tokens: &Vec<Token>) -> Result<Vec<Statement>, Box<dyn Error>> {
     Ok(statements)
 }
 
+macro_rules! consume {
+    ($self:expr, TokenType::Identifier, $error:expr) => {
+        match $self.peek()?.tokentype.clone() {
+            TokenType::Identifier(name) => {
+                $self.advance();
+                name
+            }
+            _ => return Err($self.error($error)),
+        }
+    };
+    ($self:expr, $token_type:pat, $error:expr) => {
+        match $self.peek()?.tokentype {
+            $token_type => $self.advance(),
+            _ => return Err($self.error($error)),
+        }
+    };
+}
+
+macro_rules! check {
+    ($self:expr, $($token_type:tt)+) => {
+        if $self.is_at_end() {
+            false
+        } else {
+            match $self.peek()?.tokentype {
+                $($token_type)+ => true,
+                _ => false,
+            }
+        }
+    };
+}
+
+macro_rules! matches {
+    ($self:expr, $($token_type:tt)+) => {
+        if check!($self, $($token_type)+) {
+            $self.advance();
+            true
+        } else {
+            false
+        }
+    };
+}
+
 impl<'a> Parser<'a> {
     fn declaration(&mut self) -> Result<Statement, Box<dyn Error>> {
-        match self.peek().tokentype {
+        match self.peek()?.tokentype {
             TokenType::Fun => {
                 self.advance();
                 self.function("function")
@@ -63,83 +105,54 @@ impl<'a> Parser<'a> {
         }
     }
     fn var_declaration(&mut self) -> Result<Statement, Box<dyn Error>> {
-        let name = self.peek().tokentype.clone();
-        match name {
-            TokenType::Identifier(name) => {
-                self.advance();
-                match self.peek().tokentype {
-                    TokenType::Equal => {
-                        self.advance();
-                        let initializer = self.expression()?;
-                        match self.peek().tokentype {
-                            TokenType::Semicolon => {
-                                self.advance();
-                                Ok(Statement::Var {
-                                    name: name.clone(),
-                                    initializer,
-                                })
-                            }
-                            _ => Err(self.error("Expect ';' after variable declaration.")),
-                        }
-                    }
-                    _ => Err(self.error("Expect '=' after declaring variable name.")),
-                }
-            }
-            _ => Err(self.error("Expect variable name.")),
-        }
+        let name = consume!(self, TokenType::Identifier, "Expect variable name.");
+        consume!(
+            self,
+            TokenType::Equal,
+            "Expect '=' after declaring variable name."
+        );
+        let initializer = self.expression()?;
+        consume!(
+            self,
+            TokenType::Semicolon,
+            "Expect ';' after variable declaration."
+        );
+        Ok(Statement::Var { name, initializer })
     }
     fn function(&mut self, kind: &str) -> Result<Statement, Box<dyn Error>> {
-        match self.peek().tokentype.clone() {
-            TokenType::Identifier(name) => {
-                self.advance();
-                match self.peek().tokentype {
-                    TokenType::LeftParen => {
-                        self.advance();
-                        let mut parameters: Vec<Token> = Vec::new();
-                        match self.peek().tokentype {
-                            TokenType::RightParen => (),
-                            _ => loop {
-                                match self.peek().tokentype.clone() {
-                                    TokenType::Identifier(_) => {
-                                        parameters.push(self.advance().clone());
-                                    }
-                                    _ => return Err(self.error("Expect parameter name")),
-                                }
-                                match self.peek().tokentype {
-                                    TokenType::Comma => self.advance(),
-                                    _ => break,
-                                };
-                            },
-                        }
-                        match self.peek().tokentype {
-                            TokenType::RightParen => {
-                                self.advance();
-                                match self.peek().tokentype {
-                                    TokenType::LeftBrace => {
-                                        self.advance();
-                                        let body = self.block()?;
-                                        Ok(Statement::Function(Rc::new(Callable {
-                                            name: name.clone(),
-                                            params: parameters,
-                                            body: body,
-                                        })))
-                                    }
-                                    _ => Err(self.error(
-                                        format!("Expect '{{' before {} body", kind).as_str(),
-                                    )),
-                                }
-                            }
-                            _ => Err(self.error("Expect ')' after parameters")),
-                        }
-                    }
-                    _ => Err(self.error(format!("Expect '(' after {} name", kind).as_str())),
+        let name = consume!(
+            self,
+            TokenType::Identifier,
+            format!("Expect {} name", kind).as_str()
+        );
+        consume!(
+            self,
+            TokenType::LeftParen,
+            format!("Expect '(' after {} name", kind).as_str()
+        );
+        let mut parameters: Vec<Token> = Vec::new();
+        if check!(self, TokenType::LeftParen) {
+            loop {
+                parameters.push(
+                    consume!(self, TokenType::Identifier(_), "Expect parameter name").clone(),
+                );
+                if !matches!(self, TokenType::Comma) {
+                    break;
                 }
             }
-            _ => Err(self.error(format!("Expect {} name", kind).as_str())),
         }
+        consume!(self, TokenType::RightParen, "Expect ')' after parameters");
+
+        consume!(self, TokenType::LeftBrace, "Expect '{{' before {} body");
+        let body = self.block()?;
+        Ok(Statement::Function(Rc::new(Callable {
+            name: name,
+            params: parameters,
+            body: body,
+        })))
     }
     fn statement(&mut self) -> Result<Statement, Box<dyn Error>> {
-        match self.peek().tokentype {
+        match self.peek()?.tokentype {
             TokenType::If => {
                 self.advance();
                 self.if_statement()
@@ -169,7 +182,7 @@ impl<'a> Parser<'a> {
     }
     fn return_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
         let keyword = self.previous().clone();
-        let expr = match self.peek().tokentype {
+        let value = match self.peek()?.tokentype {
             TokenType::Semicolon => Expression::Literal(Token {
                 tokentype: TokenType::Nil,
                 lexeme: "".to_string(),
@@ -177,174 +190,128 @@ impl<'a> Parser<'a> {
             }),
             _ => self.expression()?,
         };
-        match self.peek().tokentype {
-            TokenType::Semicolon => {
-                self.advance();
-                Ok(Statement::Return {
-                    keyword: keyword,
-                    value: expr,
-                })
-            }
-            _ => Err(self.error("Expect ';' after return value")),
-        }
+        consume!(self, TokenType::Semicolon, "Expect ';' after return value");
+        Ok(Statement::Return { keyword, value })
     }
     fn for_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
-        match self.peek().tokentype {
-            TokenType::LeftParen => {
+        consume!(self, TokenType::LeftParen, "Expect '(' after 'for'.");
+        let initializer: Option<Statement> = match self.peek()?.tokentype {
+            TokenType::Semicolon => {
                 self.advance();
-                let initializer: Option<Statement> = match self.peek().tokentype {
-                    TokenType::Semicolon => {
-                        self.advance();
-                        None
-                    }
-                    TokenType::Var => {
-                        self.advance();
-                        Some(self.var_declaration()?)
-                    }
-                    _ => Some(self.expression_statement()?),
-                };
-
-                let condition = match self.peek().tokentype {
-                    TokenType::Semicolon => Expression::Literal(Token {
-                        tokentype: TokenType::True,
-                        lexeme: String::from("true"),
-                        line: 0,
-                    }),
-                    _ => self.expression()?,
-                };
-                match self.peek().tokentype {
-                    TokenType::Semicolon => {
-                        self.advance();
-                    }
-                    _ => {
-                        return Err(self.error("Expect ';' after for loop condition."));
-                    }
-                }
-
-                let increment: Option<Expression> = match self.peek().tokentype {
-                    TokenType::RightParen => None,
-                    _ => Some(self.expression()?),
-                };
-                match self.peek().tokentype {
-                    TokenType::RightParen => {
-                        self.advance();
-                    }
-                    _ => {
-                        return Err(self.error("Expect ')' after for loop clauses."));
-                    }
-                }
-
-                let mut body = self.statement()?;
-
-                if let Some(x) = increment {
-                    body = Statement::Block(vec![body, Statement::Expression(x)])
-                }
-                body = Statement::While {
-                    condition: condition,
-                    body: Box::new(body),
-                };
-                match initializer {
-                    None => Ok(body),
-                    Some(x) => Ok(Statement::Block(vec![x, body])),
-                }
+                None
             }
-            _ => Err(self.error("Expect '(' after 'for'.")),
+            TokenType::Var => {
+                self.advance();
+                Some(self.var_declaration()?)
+            }
+            _ => Some(self.expression_statement()?),
+        };
+
+        let condition = match self.peek()?.tokentype {
+            TokenType::Semicolon => Expression::Literal(Token {
+                tokentype: TokenType::True,
+                lexeme: String::from("true"),
+                line: 0,
+            }),
+            _ => self.expression()?,
+        };
+        consume!(
+            self,
+            TokenType::Semicolon,
+            "Expect ';' after for loop condition."
+        );
+
+        let increment: Option<Expression> = match self.peek()?.tokentype {
+            TokenType::RightParen => None,
+            _ => Some(self.expression()?),
+        };
+        consume!(
+            self,
+            TokenType::RightParen,
+            "Expect ')' after for loop clauses."
+        );
+
+        let mut body = self.statement()?;
+
+        if let Some(x) = increment {
+            body = Statement::Block(vec![body, Statement::Expression(x)])
+        }
+        body = Statement::While {
+            condition: condition,
+            body: Box::new(body),
+        };
+        match initializer {
+            None => Ok(body),
+            Some(x) => Ok(Statement::Block(vec![x, body])),
         }
     }
     fn while_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
-        match self.peek().tokentype {
-            TokenType::LeftParen => {
-                self.advance();
-                let condition = self.expression()?;
-                match self.peek().tokentype {
-                    TokenType::RightParen => {
-                        self.advance();
-                        let body = self.statement()?;
-                        Ok(Statement::While {
-                            condition: condition,
-                            body: Box::new(body),
-                        })
-                    }
-                    _ => Err(self.error("Expect ')' after if condition.")),
-                }
-            }
-            _ => Err(self.error("Expect '(' after 'if'.")),
-        }
+        consume!(self, TokenType::LeftParen, "Expect '(' after 'while'.");
+        let condition = self.expression()?;
+        consume!(
+            self,
+            TokenType::RightParen,
+            "Expect ')' after while condition."
+        );
+        let body = self.statement()?;
+        Ok(Statement::While {
+            condition: condition,
+            body: Box::new(body),
+        })
     }
     fn if_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
-        match self.peek().tokentype {
-            TokenType::LeftParen => {
+        consume!(self, TokenType::LeftParen, "Expect '(' after 'if'.");
+        let condition = self.expression()?;
+        consume!(
+            self,
+            TokenType::RightParen,
+            "Expect ')' after if condition."
+        );
+        let then_branch = self.statement()?;
+        match self.peek()?.tokentype {
+            TokenType::Else => {
                 self.advance();
-                let condition = self.expression()?;
-                match self.peek().tokentype {
-                    TokenType::RightParen => {
-                        self.advance();
-                        let then_branch = self.statement()?;
-                        match self.peek().tokentype {
-                            TokenType::Else => {
-                                self.advance();
-                                let else_branch = self.statement()?;
-                                Ok(Statement::If {
-                                    condition: condition,
-                                    then_branch: Box::new(then_branch),
-                                    else_branch: Some(Box::new(else_branch)),
-                                })
-                            }
-                            _ => Ok(Statement::If {
-                                condition: condition,
-                                then_branch: Box::new(then_branch),
-                                else_branch: None,
-                            }),
-                        }
-                    }
-                    _ => Err(self.error("Expect ')' after if condition.")),
-                }
+                let else_branch = self.statement()?;
+                Ok(Statement::If {
+                    condition: condition,
+                    then_branch: Box::new(then_branch),
+                    else_branch: Some(Box::new(else_branch)),
+                })
             }
-            _ => Err(self.error("Expect '(' after 'if'.")),
+            _ => Ok(Statement::If {
+                condition: condition,
+                then_branch: Box::new(then_branch),
+                else_branch: None,
+            }),
         }
     }
     fn block(&mut self) -> Result<Statement, Box<dyn Error>> {
         let mut statements: Vec<Statement> = Vec::new();
         while !self.is_at_end() {
-            if let TokenType::RightBrace = self.peek().tokentype {
+            if let TokenType::RightBrace = self.peek()?.tokentype {
                 break;
             }
             statements.push(self.declaration()?);
         }
-        match self.peek().tokentype {
-            TokenType::RightBrace => {
-                self.advance();
-                Ok(Statement::Block(statements))
-            }
-            _ => Err(self.error("Expect '}' after block")),
-        }
+        consume!(self, TokenType::RightBrace, "Expect '}' after block");
+        Ok(Statement::Block(statements))
     }
     fn print_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
         let expr = self.expression()?;
-        match self.peek().tokentype {
-            TokenType::Semicolon => {
-                self.advance();
-                Ok(Statement::Print(expr))
-            }
-            _ => Err(self.error("Expect ';' after value.")),
-        }
+        consume!(self, TokenType::Semicolon, "Expect ';' after value.");
+        Ok(Statement::Print(expr))
     }
     fn expression_statement(&mut self) -> Result<Statement, Box<dyn Error>> {
         let expr = self.expression()?;
-        match self.peek().tokentype {
-            TokenType::Semicolon => {
-                self.advance();
-                Ok(Statement::Expression(expr))
-            }
-            _ => Err(self.error("Expect ';' after expression.")),
-        }
+        consume!(self, TokenType::Semicolon, "Expect ';' after expression.");
+        Ok(Statement::Expression(expr))
     }
     fn expression(&mut self) -> Result<Expression, Box<dyn Error>> {
         self.assignment()
     }
     fn assignment(&mut self) -> Result<Expression, Box<dyn Error>> {
         let expr = self.or()?;
-        match self.peek().tokentype {
+        match self.peek()?.tokentype {
             TokenType::Equal => {
                 self.advance();
                 //let equals = self.previous();
@@ -362,117 +329,87 @@ impl<'a> Parser<'a> {
     }
     fn or(&mut self) -> Result<Expression, Box<dyn Error>> {
         let mut expr = self.and()?;
-        loop {
-            match self.peek().tokentype.clone() {
-                TokenType::Or => {
-                    let operator = self.advance().clone();
-                    let right = self.and()?;
-                    expr = Expression::Logical {
-                        left: Box::new(expr),
-                        operator: operator,
-                        right: Box::new(right),
-                    };
-                }
-                _ => break,
-            }
+        while matches!(self, TokenType::Or) {
+            let operator = self.previous().clone();
+            let right = self.and()?;
+            expr = Expression::Logical {
+                left: Box::new(expr),
+                operator: operator,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
     fn and(&mut self) -> Result<Expression, Box<dyn Error>> {
         let mut expr = self.equality()?;
-        loop {
-            match self.peek().tokentype {
-                TokenType::And => {
-                    let operator = self.advance().clone();
-                    let right = self.equality()?;
-                    expr = Expression::Logical {
-                        left: Box::new(expr),
-                        operator: operator,
-                        right: Box::new(right),
-                    };
-                }
-                _ => break,
-            }
+        while matches!(self, TokenType::And) {
+            let operator = self.previous().clone();
+            let right = self.equality()?;
+            expr = Expression::Logical {
+                left: Box::new(expr),
+                operator: operator,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
     fn equality(&mut self) -> Result<Expression, Box<dyn Error>> {
         let mut expr = self.comparison()?;
-        loop {
-            match self.peek().tokentype {
-                TokenType::BangEqual | TokenType::EqualEqual => {
-                    let operator = self.advance().clone();
-                    let right = self.comparison()?;
-                    expr = Expression::Binary {
-                        left: Box::new(expr),
-                        operator: operator,
-                        right: Box::new(right),
-                    };
-                }
-                _ => break,
-            }
+        while matches!(self, TokenType::BangEqual | TokenType::EqualEqual) {
+            let operator = self.previous().clone();
+            let right = self.comparison()?;
+            expr = Expression::Binary {
+                left: Box::new(expr),
+                operator: operator,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
     fn comparison(&mut self) -> Result<Expression, Box<dyn Error>> {
         let mut expr = self.addition()?;
-        loop {
-            match self.peek().tokentype {
-                TokenType::Greater
-                | TokenType::GreaterEqual
-                | TokenType::Less
-                | TokenType::LessEqual => {
-                    let operator = self.advance().clone();
-                    let right = self.addition()?;
-                    expr = Expression::Binary {
-                        left: Box::new(expr),
-                        operator: operator,
-                        right: Box::new(right),
-                    };
-                }
-                _ => break,
-            }
+        while matches!(
+            self,
+            TokenType::Greater | TokenType::GreaterEqual | TokenType::Less | TokenType::LessEqual
+        ) {
+            let operator = self.previous().clone();
+            let right = self.addition()?;
+            expr = Expression::Binary {
+                left: Box::new(expr),
+                operator: operator,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
     fn addition(&mut self) -> Result<Expression, Box<dyn Error>> {
         let mut expr = self.multiplication()?;
-        loop {
-            match self.peek().tokentype {
-                TokenType::Minus | TokenType::Plus => {
-                    let operator = self.advance().clone();
-                    let right = self.multiplication()?;
-                    expr = Expression::Binary {
-                        left: Box::new(expr),
-                        operator: operator,
-                        right: Box::new(right),
-                    };
-                }
-                _ => break,
-            }
+        while matches!(self, TokenType::Minus | TokenType::Plus) {
+            let operator = self.previous().clone();
+            let right = self.multiplication()?;
+            expr = Expression::Binary {
+                left: Box::new(expr),
+                operator: operator,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
     fn multiplication(&mut self) -> Result<Expression, Box<dyn Error>> {
         let mut expr = self.unary()?;
-        loop {
-            match self.peek().tokentype {
-                TokenType::Slash | TokenType::Star => {
-                    let operator = self.advance().clone();
-                    let right = self.unary()?;
-                    expr = Expression::Binary {
-                        left: Box::new(expr),
-                        operator: operator,
-                        right: Box::new(right),
-                    };
-                }
-                _ => break,
-            }
+        while matches!(self, TokenType::Slash | TokenType::Star) {
+            let operator = self.previous().clone();
+            let right = self.unary()?;
+            expr = Expression::Binary {
+                left: Box::new(expr),
+                operator: operator,
+                right: Box::new(right),
+            };
         }
         Ok(expr)
     }
     fn unary(&mut self) -> Result<Expression, Box<dyn Error>> {
-        match self.peek().tokentype {
+        match self.peek()?.tokentype {
             TokenType::Bang | TokenType::Minus => {
                 let operator = self.advance().clone();
                 let right = self.unary()?;
@@ -487,7 +424,7 @@ impl<'a> Parser<'a> {
     fn call(&mut self) -> Result<Expression, Box<dyn Error>> {
         let mut expr = self.primary()?;
         loop {
-            match self.peek().tokentype {
+            match self.peek()?.tokentype {
                 TokenType::LeftParen => {
                     self.advance();
                     expr = self.finish_call(expr)?;
@@ -499,34 +436,33 @@ impl<'a> Parser<'a> {
     }
     fn finish_call(&mut self, callee: Expression) -> Result<Expression, Box<dyn Error>> {
         let mut arguments: Vec<Expression> = Vec::new();
-        match self.peek().tokentype {
+        match self.peek()?.tokentype {
             TokenType::RightParen => (),
             _ => {
                 loop {
                     // TODO: Restrict max args to 255.
                     arguments.push(self.expression()?);
-                    match self.peek().tokentype {
+                    match self.peek()?.tokentype {
                         TokenType::Comma => self.advance(),
                         _ => break,
                     };
                 }
             }
         }
-        let paren = self.peek().clone();
-        match paren.tokentype {
-            TokenType::RightParen => {
-                self.advance();
-                Ok(Expression::Call {
-                    callee: Box::new(callee),
-                    paren: paren,
-                    arguments: arguments,
-                })
-            }
-            _ => Err(self.error("Expect ')' after function arguments.")),
-        }
+        let paren = consume!(
+            self,
+            TokenType::RightParen,
+            "Expect ')' after function arguments."
+        )
+        .clone();
+        Ok(Expression::Call {
+            callee: Box::new(callee),
+            paren: paren,
+            arguments: arguments,
+        })
     }
     fn primary(&mut self) -> Result<Expression, Box<dyn Error>> {
-        match self.peek().tokentype {
+        match self.peek()?.tokentype {
             TokenType::False
             | TokenType::True
             | TokenType::Nil
@@ -536,13 +472,8 @@ impl<'a> Parser<'a> {
             TokenType::LeftParen => {
                 self.advance();
                 let expr = self.expression()?;
-                match self.peek().tokentype {
-                    TokenType::RightParen => {
-                        self.advance();
-                        Ok(Expression::Grouping(Box::new(expr)))
-                    }
-                    _ => Err(self.error("Expect ')' after expression.")),
-                }
+                consume!(self, TokenType::RightParen, "Expect ')' after expression.");
+                Ok(Expression::Grouping(Box::new(expr)))
             }
             _ => Err(self.error("Expect expression.")),
         }
@@ -553,7 +484,7 @@ impl<'a> Parser<'a> {
             if let TokenType::Semicolon = self.previous().tokentype {
                 return;
             }
-            match self.peek().tokentype {
+            match self.peek().unwrap().tokentype {
                 TokenType::Class
                 | TokenType::Fun
                 | TokenType::Var
@@ -574,13 +505,16 @@ impl<'a> Parser<'a> {
         self.previous()
     }
     fn is_at_end(&self) -> bool {
-        match self.peek().tokentype {
+        match self.peek().unwrap().tokentype {
             TokenType::EOF => true,
             _ => false,
         }
     }
-    fn peek(&self) -> &Token {
-        self.tokens.get(self.current).unwrap()
+    fn peek(&self) -> Result<&Token, Box<dyn Error>> {
+        match self.tokens.get(self.current) {
+            None => Err(self.error("No more tokens")),
+            Some(x) => Ok(x),
+        }
     }
     fn previous(&self) -> &Token {
         self.tokens
@@ -595,7 +529,7 @@ impl<'a> Parser<'a> {
         Box::new(ParseError {
             message: msg.to_string(),
             prev: self.previous().clone(),
-            cur: self.peek().clone(),
+            cur: self.peek().unwrap().clone(),
         })
     }
 }
