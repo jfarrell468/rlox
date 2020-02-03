@@ -131,7 +131,7 @@ impl<'a> Parser<'a> {
             format!("Expect '(' after {} name", kind).as_str()
         );
         let mut parameters: Vec<Token> = Vec::new();
-        if check!(self, TokenType::LeftParen) {
+        if !check!(self, TokenType::RightParen) {
             loop {
                 parameters.push(
                     consume!(self, TokenType::Identifier(_), "Expect parameter name").clone(),
@@ -535,9 +535,27 @@ impl<'a> Parser<'a> {
 }
 
 #[cfg(test)]
-mod parse_error_tests {
-    use crate::scanner;
+mod parse_tests {
     use crate::parser;
+    use crate::scanner;
+
+    fn expect_success(source: &str) {
+        let (tokens, success) = scanner::scan_tokens(source);
+        assert!(success);
+        let result = parser::parse(&tokens);
+        assert!(result.is_ok(), "{}", result.err().unwrap());
+    }
+
+    #[test]
+    fn function_declaration() {
+        expect_success("fun add(a,b,c) { print a + b + c; }")
+    }
+}
+
+#[cfg(test)]
+mod parse_error_tests {
+    use crate::parser;
+    use crate::scanner;
 
     fn expect_error(source: &str, expected_description: &str) {
         let (tokens, success) = scanner::scan_tokens(source);
@@ -548,7 +566,7 @@ mod parse_error_tests {
     }
 
     #[test]
-    fn basic_test() {
+    fn variable_name() {
         expect_error("var 1;", "Expect variable name.")
     }
 }

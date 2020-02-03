@@ -68,6 +68,24 @@ pub enum ErrorType {
     VariableError(VariableError),
     RuntimeError(RuntimeError),
 }
+impl fmt::Display for ErrorType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ErrorType::Return(x) => x.fmt(f),
+            ErrorType::VariableError(x) => x.fmt(f),
+            ErrorType::RuntimeError(x) => x.fmt(f),
+        }
+    }
+}
+impl Error for ErrorType {
+    fn description(&self) -> &str {
+        match self {
+            ErrorType::Return(x) => x.description(),
+            ErrorType::VariableError(x) => x.description(),
+            ErrorType::RuntimeError(x) => x.description(),
+        }
+    }
+}
 
 impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
     fn visit(&mut self, expr: &Expression) -> Result<Value, ErrorType> {
@@ -353,23 +371,76 @@ fn is_equal(lv: &Value, rv: &Value) -> bool {
 
 #[cfg(test)]
 mod interpreter_tests {
-    use crate::scanner;
-    use crate::parser;
-    use crate::interpreter;
     use crate::ast::Value;
+    use crate::interpreter;
+    use crate::parser;
+    use crate::scanner;
 
-    #[test]
-    fn basic_test() {
-        let (tokens, success) = scanner::scan_tokens("1+2;");
+    fn expect_number(source: &str, expected_value: f64) {
+        let (tokens, success) = scanner::scan_tokens(source);
         assert!(success);
         let result = parser::parse(&tokens);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "{}", result.err().unwrap());
         let mut interpreter = interpreter::Interpreter::new();
         let val = interpreter.interpret(&result.unwrap());
-        assert!(val.is_ok());
+        assert!(val.is_ok(), "{}", val.err().unwrap());
         match val.unwrap() {
-            Value::Number(x) => assert_eq!(x, 3.0),
-            _ => panic!("Wrong type.")
+            Value::Number(x) => assert_eq!(x, expected_value),
+            _ => panic!("Wrong type."),
         }
+    }
+
+    #[test]
+    fn addition_statement() {
+        expect_number("1+2;", 3.0);
+    }
+
+    #[test]
+    fn variable_declaration() {
+        expect_number("var x = 3;", 3.0);
+        expect_number("var x = 3; x + 1;", 4.0);
+    }
+
+    #[test]
+    fn variable_scope() {
+        expect_number("var x = 1; { var x = 2; } x;", 1.0);
+        expect_number("var x = 1; { var x = 2; x; }", 2.0);
+    }
+
+    #[test]
+    fn while_loop() {
+        expect_number(
+            "var a = 0; var b = 1; while (a < 10000) { var temp = a; a = b; b = temp + b; } a;",
+            10946.0,
+        );
+    }
+
+    #[test]
+    fn for_loop() {
+        expect_number(
+            "var a = 1; for(var b = 1; b <= 6; b = b+1) { a = a * b; } a;",
+            720.0,
+        )
+    }
+
+    #[test]
+    fn function() {
+        expect_number("fun square(x) { x * x; } square(2);", 4.0);
+    }
+
+    #[test]
+    fn function_return() {
+        expect_number(
+            "fun sign(x) { if (x==0) { return 0; } if (x<0) { return -1; } return 1; } sign(-2);",
+            -1.0,
+        );
+    }
+
+    #[test]
+    fn recursion() {
+        expect_number(
+            r#"fun factorial(x) { if(x<=1) { return 1; } return x * factorial(x-1); } factorial(5);"#,
+            120.0,
+        );
     }
 }
