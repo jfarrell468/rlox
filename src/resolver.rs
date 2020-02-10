@@ -29,8 +29,15 @@ impl<'a> Error for ResolverError {
     }
 }
 
+#[derive(Clone, Debug)]
+enum FunctionType {
+    None,
+    Function,
+}
+
 pub struct Resolver {
     scopes: Vec<BTreeMap<String, bool>>,
+    current_function: FunctionType,
 }
 
 impl MutatingVisitor<Expression, Result<(), ResolverError>> for Resolver {
@@ -96,7 +103,7 @@ impl MutatingVisitor<Statement, Result<(), ResolverError>> for Resolver {
             Statement::Print(expr) => self.resolve_expr(expr),
             Statement::Expression(expr) => self.resolve_expr(expr),
             Statement::Var { name, initializer } => {
-                self.declare(name.clone());
+                self.declare(name.clone())?;
                 self.resolve_expr(initializer)?;
                 self.define(name.clone());
                 Ok(())
@@ -124,23 +131,37 @@ impl MutatingVisitor<Statement, Result<(), ResolverError>> for Resolver {
                 self.resolve_stmt(body)
             }
             Statement::Function(fun) => {
-                self.declare(fun.name().clone());
+                self.declare(fun.name().clone())?;
                 self.define(fun.name().clone());
-                self.resolve_function(stmt)
+                self.resolve_function(stmt, FunctionType::Function)
             }
-            Statement::Return { keyword: _, value } => self.resolve_expr(value),
+            Statement::Return { keyword: _, value } => {
+                if let FunctionType::None = self.current_function {
+                    Err(ResolverError {
+                        message: "Cannot return from top-level code.".to_string(),
+                        token: None,
+                    })
+                } else {
+                    self.resolve_expr(value)
+                }
+            }
         }
     }
 }
 
 impl Resolver {
     pub fn new() -> Resolver {
-        Resolver { scopes: Vec::new() }
+        let mut resolver = Resolver {
+            scopes: Vec::new(),
+            current_function: FunctionType::None,
+        };
+        resolver.begin_scope();
+        resolver
     }
     fn resolve_expr(&mut self, expr: &mut Expression) -> Result<(), ResolverError> {
         expr.accept_mut(self)
     }
-    pub fn resolve_stmt(&mut self, stmt: &mut Statement) -> Result<(), ResolverError> {
+    fn resolve_stmt(&mut self, stmt: &mut Statement) -> Result<(), ResolverError> {
         stmt.accept_mut(self)
     }
     pub fn resolve(&mut self, statements: &mut Vec<Statement>) -> Result<(), ResolverError> {
@@ -155,10 +176,16 @@ impl Resolver {
     fn end_scope(&mut self) {
         self.scopes.pop();
     }
-    fn declare(&mut self, name: String) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name, false);
-        }
+    fn declare(&mut self, name: String) -> Result<(), ResolverError> {
+        self.scopes
+            .last_mut()
+            .map_or(Ok(()), |scope| match scope.insert(name.clone(), false) {
+                None => Ok(()),
+                Some(_) => Err(ResolverError {
+                    message: format!("Multiple declarations of '{}' in the same scope.", name),
+                    token: None,
+                }),
+            })
     }
     fn define(&mut self, name: String) {
         if let Some(scope) = self.scopes.last_mut() {
@@ -201,7 +228,7 @@ impl Resolver {
                             message:
                                 "Can only resolve an expression of type 'variable' or 'assign'."
                                     .to_string(),
-                            token: None,
+                            token: Some(token.clone()),
                         });
                     }
                 }
@@ -209,9 +236,15 @@ impl Resolver {
         }
         Ok(())
     }
-    fn resolve_function(&mut self, stmt: &mut Statement) -> Result<(), ResolverError> {
+    fn resolve_function(
+        &mut self,
+        stmt: &mut Statement,
+        fn_type: FunctionType,
+    ) -> Result<(), ResolverError> {
         match stmt {
             Statement::Function(x) => {
+                let enclosing_fn = self.current_function.clone();
+                self.current_function = fn_type;
                 self.begin_scope();
                 for param in x.params().iter() {
                     self.declare(param.lexeme.clone());
@@ -219,6 +252,7 @@ impl Resolver {
                 }
                 let result = self.resolve_stmt(&mut *x.body_mut());
                 self.end_scope();
+                self.current_function = enclosing_fn;
                 result
             }
             _ => Err(ResolverError {
@@ -226,5 +260,48 @@ impl Resolver {
                 token: None,
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod resolver_error_tests {
+    use crate::parser;
+    use crate::resolver;
+    use crate::scanner;
+    use std::error::Error;
+
+    fn expect_error(source: &str, expected_error: &str) {
+        let (tokens, success) = scanner::scan_tokens(source);
+        assert!(success);
+        let result = parser::parse(&tokens);
+        assert!(result.is_ok(), "{}", result.err().unwrap());
+        let mut ast = result.unwrap();
+        let mut resolver = resolver::Resolver::new();
+        let result = resolver.resolve(&mut ast);
+        assert!(result.is_err());
+        result.err().map(|err| {
+            assert_eq!(err.description(), expected_error);
+        });
+    }
+
+    #[test]
+    fn variable_referenced_in_initializer() {
+        expect_error(
+            "var a = a;",
+            "Cannot read local variable in its own initializer.",
+        );
+    }
+
+    #[test]
+    fn multiple_declarations() {
+        expect_error(
+            "var a = 1; var a = 2;",
+            "Multiple declarations of 'a' in the same scope.",
+        );
+    }
+
+    #[test]
+    fn top_level_return() {
+        expect_error("return 1;", "Cannot return from top-level code.");
     }
 }

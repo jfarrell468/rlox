@@ -328,7 +328,7 @@ impl Interpreter {
     fn evaluate(&mut self, expr: &Expression) -> Result<Value, ErrorType> {
         expr.accept(self)
     }
-    pub fn execute(&mut self, stmt: &Statement) -> Result<Value, ErrorType> {
+    fn execute(&mut self, stmt: &Statement) -> Result<Value, ErrorType> {
         stmt.accept(self)
     }
     pub fn interpret(&mut self, statements: &Vec<Statement>) -> Result<Value, ErrorType> {
