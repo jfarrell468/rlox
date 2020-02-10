@@ -1,8 +1,8 @@
 use crate::callable::Callable;
+use crate::environment::Environment;
 use crate::token::{Token, TokenType};
 use std::fmt;
 use std::fmt::Formatter;
-use std::rc::Rc;
 
 #[derive(Clone, Debug)]
 pub enum Value {
@@ -10,7 +10,7 @@ pub enum Value {
     Boolean(bool),
     Number(f64),
     String(String),
-    Callable(Rc<Callable>),
+    Callable(Callable, Environment),
 }
 
 impl fmt::Display for Value {
@@ -20,7 +20,7 @@ impl fmt::Display for Value {
             Value::Boolean(x) => write!(f, "{}", x),
             Value::Number(x) => write!(f, "{}", x),
             Value::String(x) => write!(f, "{}", x),
-            Value::Callable(x) => write!(f, "{}", x),
+            Value::Callable(x, _) => write!(f, "{}", x),
         }
     }
 }
@@ -31,7 +31,7 @@ impl Value {
             Value::Boolean(_) => "boolean",
             Value::Number(_) => "number",
             Value::String(_) => "string",
-            Value::Callable(_) => "callable",
+            Value::Callable(_, _) => "callable",
         }
     }
 }
@@ -54,10 +54,14 @@ pub enum Expression {
         operator: Token,
         right: Box<Expression>,
     },
-    Variable(Token),
+    Variable {
+        name: Token,
+        scope: Option<usize>,
+    },
     Assign {
         name: Token,
         value: Box<Expression>,
+        scope: Option<usize>,
     },
     Call {
         callee: Box<Expression>,
@@ -70,8 +74,15 @@ pub trait Visitor<T, Output> {
     fn visit(&mut self, n: &T) -> Output;
 }
 
+pub trait MutatingVisitor<T, Output> {
+    fn visit(&mut self, n: &mut T) -> Output;
+}
+
 impl Expression {
     pub fn accept<T>(&self, v: &mut Visitor<Expression, T>) -> T {
+        v.visit(self)
+    }
+    pub fn accept_mut<T>(&mut self, v: &mut MutatingVisitor<Expression, T>) -> T {
         v.visit(self)
     }
 }
@@ -94,7 +105,7 @@ pub enum Statement {
         condition: Expression,
         body: Box<Statement>,
     },
-    Function(Rc<Callable>),
+    Function(Callable),
     Return {
         keyword: Token,
         value: Expression,
@@ -103,6 +114,9 @@ pub enum Statement {
 
 impl Statement {
     pub fn accept<T>(&self, v: &mut Visitor<Statement, T>) -> T {
+        v.visit(self)
+    }
+    pub fn accept_mut<T>(&mut self, v: &mut MutatingVisitor<Statement, T>) -> T {
         v.visit(self)
     }
 }
@@ -139,10 +153,12 @@ impl Visitor<Expression, String> for AstPrinter {
             Expression::Unary { operator, right } => {
                 self.parenthesize(&operator.lexeme, vec![right])
             }
-            Expression::Variable(x) => x.lexeme.to_string(),
-            Expression::Assign { name, value } => {
-                format!("(assign {} {})", name.lexeme, value.accept(self)).to_string()
-            }
+            Expression::Variable { name, scope: _ } => name.lexeme.to_string(),
+            Expression::Assign {
+                name,
+                value,
+                scope: _,
+            } => format!("(assign {} {})", name.lexeme, value.accept(self)).to_string(),
             Expression::Logical {
                 left,
                 operator,

@@ -3,9 +3,12 @@ mod callable;
 mod environment;
 mod interpreter;
 mod parser;
+mod resolver;
 mod scanner;
+mod shared_list;
 mod token;
 
+use crate::resolver::ResolverError;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
@@ -47,11 +50,20 @@ fn run(source: &str) -> bool {
     if !success {
         return success;
     }
-    match parser::parse(&tokens) {
+    match &mut parser::parse(&tokens) {
         Ok(statements) => {
-            let mut interpreter = interpreter::Interpreter::new();
-            interpreter.interpret(&statements);
-            true
+            let mut resolver = resolver::Resolver::new();
+            match resolver.resolve(statements) {
+                Ok(_) => {
+                    let mut interpreter = interpreter::Interpreter::new();
+                    interpreter.interpret(statements);
+                    true
+                }
+                Err(err) => {
+                    println!("{}", err);
+                    false
+                }
+            }
         }
         Err(x) => {
             println!("{}", x);

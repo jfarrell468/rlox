@@ -3,7 +3,6 @@ use crate::callable::Callable;
 use crate::token::{Token, TokenType};
 use std::error::Error;
 use std::fmt;
-use std::rc::Rc;
 
 #[derive(Debug)]
 struct ParseError {
@@ -145,11 +144,7 @@ impl<'a> Parser<'a> {
 
         consume!(self, TokenType::LeftBrace, "Expect '{{' before {} body");
         let body = self.block()?;
-        Ok(Statement::Function(Rc::new(Callable {
-            name: name,
-            params: parameters,
-            body: body,
-        })))
+        Ok(Statement::Function(Callable::new(name, parameters, body)))
     }
     fn statement(&mut self) -> Result<Statement, ParseError> {
         match self.peek()?.tokentype {
@@ -317,9 +312,10 @@ impl<'a> Parser<'a> {
                 //let equals = self.previous();
                 let value = self.assignment()?;
                 match expr {
-                    Expression::Variable(x) => Ok(Expression::Assign {
-                        name: x,
+                    Expression::Variable { name, scope: _ } => Ok(Expression::Assign {
+                        name: name,
                         value: Box::new(value),
+                        scope: None,
                     }),
                     _ => Err(self.error("Invalid assignment target.")),
                 }
@@ -468,7 +464,10 @@ impl<'a> Parser<'a> {
             | TokenType::Nil
             | TokenType::Number(_)
             | TokenType::String(_) => Ok(Expression::Literal(self.advance().clone())),
-            TokenType::Identifier(_) => Ok(Expression::Variable(self.advance().clone())),
+            TokenType::Identifier(_) => Ok(Expression::Variable {
+                name: self.advance().clone(),
+                scope: None,
+            }),
             TokenType::LeftParen => {
                 self.advance();
                 let expr = self.expression()?;

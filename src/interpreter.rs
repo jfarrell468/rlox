@@ -1,11 +1,13 @@
-use crate::ast::{Expression, Statement, Value, Visitor};
-use crate::environment::{Environment, VariableError};
+use crate::ast::{Expression, MutatingVisitor, Statement, Value, Visitor};
+use crate::environment::{Environment, EnvironmentError};
 use crate::token::{Token, TokenType};
+use std::cell::Ref;
 use std::error::Error;
 use std::fmt;
 
 pub struct Interpreter {
-    pub environment: Environment,
+    globals: Environment,
+    environment: Environment,
 }
 
 #[derive(Debug)]
@@ -16,7 +18,7 @@ pub struct RuntimeError {
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.token {
-            None => write!(f, "Runtime error: {}", self.message.as_str()),
+            None => write!(f, "Runtime error: {}", self.message),
             Some(token) => write!(
                 f,
                 "[line {}] Runtime error: {}\n  Context: {}",
@@ -65,14 +67,14 @@ impl Error for Return {
 #[derive(Debug)]
 pub enum ErrorType {
     Return(Return),
-    VariableError(VariableError),
+    EnvironmentError(EnvironmentError),
     RuntimeError(RuntimeError),
 }
 impl fmt::Display for ErrorType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ErrorType::Return(x) => x.fmt(f),
-            ErrorType::VariableError(x) => x.fmt(f),
+            ErrorType::EnvironmentError(x) => x.fmt(f),
             ErrorType::RuntimeError(x) => x.fmt(f),
         }
     }
@@ -81,7 +83,7 @@ impl Error for ErrorType {
     fn description(&self) -> &str {
         match self {
             ErrorType::Return(x) => x.description(),
-            ErrorType::VariableError(x) => x.description(),
+            ErrorType::EnvironmentError(x) => x.description(),
             ErrorType::RuntimeError(x) => x.description(),
         }
     }
@@ -186,10 +188,19 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                     )),
                 }
             }
-            Expression::Variable(token) => self.environment.get(token.clone()),
-            Expression::Assign { name, value } => {
+            Expression::Variable { name, scope } => match scope {
+                None => self.globals.get_direct(name),
+                Some(distance) => self.environment.get_at(name, *distance),
+            },
+            Expression::Assign { name, value, scope } => {
                 let value = self.evaluate(value)?;
-                self.environment.assign(name.clone(), value.clone())?;
+                match scope {
+                    None => self.globals.assign_direct(name.clone(), value.clone())?,
+                    Some(distance) => {
+                        self.environment
+                            .assign_at(name.clone(), value.clone(), *distance)?
+                    }
+                }
                 Ok(value)
             }
             Expression::Logical {
@@ -230,12 +241,12 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                     evaluated_arguments.push(self.evaluate(argument)?);
                 }
                 match evaluated_callee {
-                    Value::Callable(function) => {
+                    Value::Callable(function, closure) => {
                         if function.arity() != evaluated_arguments.len() {
                             Err(RuntimeError::new(
                                 format!(
                                     "Wrong number of arguments to {}. Expected {}, got {}",
-                                    function.name,
+                                    function.name(),
                                     function.arity(),
                                     evaluated_arguments.len()
                                 )
@@ -243,7 +254,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                                 Some(paren.clone()),
                             ))
                         } else {
-                            function.call(self, &evaluated_arguments)
+                            function.call(self, evaluated_arguments, closure)
                         }
                     }
                     _ => Err(RuntimeError::new(
@@ -267,21 +278,10 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
             Statement::Expression(e) => self.evaluate(e),
             Statement::Var { name, initializer } => {
                 let val = self.evaluate(initializer)?;
-                self.environment.define(name, val.clone());
+                self.environment.define(name.clone(), val.clone());
                 Ok(val)
             }
-            Statement::Block(stmts) => {
-                let mut result = Ok(Value::Nil);
-                self.environment.start_block();
-                for stmt in stmts {
-                    result = self.execute(stmt);
-                    if let Err(_) = result {
-                        break;
-                    }
-                }
-                self.environment.end_block();
-                result
-            }
+            Statement::Block(stmts) => self.execute_block(stmts, self.environment.new_child()),
             Statement::If {
                 condition,
                 then_branch,
@@ -303,8 +303,10 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
                 Ok(val)
             }
             Statement::Function(callable) => {
-                self.environment
-                    .define(&callable.name, Value::Callable(callable.clone()));
+                self.environment.define(
+                    callable.name().clone(),
+                    Value::Callable(callable.clone(), self.environment.clone()),
+                );
                 Ok(Value::Nil)
             }
             Statement::Return { keyword: _, value } => {
@@ -317,8 +319,10 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
 
 impl Interpreter {
     pub fn new() -> Interpreter {
+        let env = Environment::new();
         Interpreter {
-            environment: Environment::new(),
+            globals: env.clone(),
+            environment: env,
         }
     }
     fn evaluate(&mut self, expr: &Expression) -> Result<Value, ErrorType> {
@@ -334,6 +338,23 @@ impl Interpreter {
         }
         Ok(val)
     }
+    pub fn execute_block(
+        &mut self,
+        stmts: &Vec<Statement>,
+        env: Environment,
+    ) -> Result<Value, ErrorType> {
+        let mut result = Ok(Value::Nil);
+        let parent = self.environment.clone();
+        self.environment = env;
+        for stmt in stmts {
+            result = self.execute(stmt);
+            if let Err(_) = result {
+                break;
+            }
+        }
+        self.environment = parent;
+        result
+    }
 }
 
 fn is_truthy(x: &Value) -> bool {
@@ -342,7 +363,7 @@ fn is_truthy(x: &Value) -> bool {
         Value::Boolean(x) => *x,
         Value::Number(_) => true,
         Value::String(_) => true,
-        Value::Callable(_) => false,
+        Value::Callable(_, _) => false,
     }
 }
 
@@ -374,6 +395,7 @@ mod interpreter_tests {
     use crate::ast::Value;
     use crate::interpreter;
     use crate::parser;
+    use crate::resolver;
     use crate::scanner;
 
     fn expect_number(source: &str, expected_value: f64) {
@@ -381,12 +403,17 @@ mod interpreter_tests {
         assert!(success);
         let result = parser::parse(&tokens);
         assert!(result.is_ok(), "{}", result.err().unwrap());
+        let mut ast = result.unwrap();
+        let mut resolver = resolver::Resolver::new();
+        let result = resolver.resolve(&mut ast);
+        assert!(result.is_ok(), "{}", result.err().unwrap());
         let mut interpreter = interpreter::Interpreter::new();
-        let val = interpreter.interpret(&result.unwrap());
+        let val = interpreter.interpret(&mut ast);
         assert!(val.is_ok(), "{}", val.err().unwrap());
-        match val.unwrap() {
+        let val = val.unwrap();
+        match val {
             Value::Number(x) => assert_eq!(x, expected_value),
-            _ => panic!("Wrong type."),
+            _ => panic!("Wrong type: {:?}", val),
         }
     }
 
@@ -418,7 +445,16 @@ mod interpreter_tests {
     #[test]
     fn for_loop() {
         expect_number(
-            "var a = 1; for(var b = 1; b <= 6; b = b+1) { a = a * b; } a;",
+            r#"
+var a = 1;
+for(
+  var b = 1;
+  b <= 6;
+  b = b + 1
+) {
+  a = a * b;
+}
+a;"#,
             720.0,
         )
     }
@@ -442,5 +478,13 @@ mod interpreter_tests {
             r#"fun factorial(x) { if(x<=1) { return 1; } return x * factorial(x-1); } factorial(5);"#,
             120.0,
         );
+    }
+
+    #[test]
+    fn scope() {
+        expect_number(
+            "var a = 1; { fun get_a() { return a; } var a = 2; get_a(); }",
+            1.0,
+        )
     }
 }
