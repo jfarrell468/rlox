@@ -13,11 +13,11 @@ pub struct ResolverError {
 impl<'a> fmt::Display for ResolverError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.token {
-            None => write!(f, "Resolver error: {}", self.message.as_str()),
+            None => write!(f, "Error: {}", self.message.as_str()),
             Some(token) => write!(
                 f,
-                "[line {}] Resolver error: {}\n  Context: {}",
-                token.line, self.message, token.lexeme
+                "[line {}] Error at '{}': {}",
+                token.line, token.lexeme, self.message
             ),
         }
     }
@@ -103,9 +103,9 @@ impl MutatingVisitor<Statement, Result<(), ResolverError>> for Resolver {
             Statement::Print(expr) => self.resolve_expr(expr),
             Statement::Expression(expr) => self.resolve_expr(expr),
             Statement::Var { name, initializer } => {
-                self.declare(name.clone())?;
+                self.declare(name)?;
                 self.resolve_expr(initializer)?;
-                self.define(name.clone());
+                self.define(name);
                 Ok(())
             }
             Statement::Block(stmts) => {
@@ -131,15 +131,15 @@ impl MutatingVisitor<Statement, Result<(), ResolverError>> for Resolver {
                 self.resolve_stmt(body)
             }
             Statement::Function(fun) => {
-                self.declare(fun.name().clone())?;
-                self.define(fun.name().clone());
+                self.declare(&*fun.name())?;
+                self.define(&*fun.name());
                 self.resolve_function(stmt, FunctionType::Function)
             }
-            Statement::Return { keyword: _, value } => {
+            Statement::Return { keyword, value } => {
                 if let FunctionType::None = self.current_function {
                     Err(ResolverError {
                         message: "Cannot return from top-level code.".to_string(),
-                        token: None,
+                        token: Some(keyword.clone()),
                     })
                 } else {
                     self.resolve_expr(value)
@@ -176,20 +176,20 @@ impl Resolver {
     fn end_scope(&mut self) {
         self.scopes.pop();
     }
-    fn declare(&mut self, name: String) -> Result<(), ResolverError> {
+    fn declare(&mut self, name: &Token) -> Result<(), ResolverError> {
         self.scopes
             .last_mut()
-            .map_or(Ok(()), |scope| match scope.insert(name.clone(), false) {
+            .map_or(Ok(()), |scope| match scope.insert(name.lexeme.clone(), false) {
                 None => Ok(()),
                 Some(_) => Err(ResolverError {
-                    message: format!("Multiple declarations of '{}' in the same scope.", name),
-                    token: None,
+                    message: "Variable with this name already declared in this scope.".to_string(),
+                    token: Some(name.clone()),
                 }),
             })
     }
-    fn define(&mut self, name: String) {
+    fn define(&mut self, name: &Token) {
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name, true);
+            scope.insert(name.lexeme.clone(), true);
         }
     }
     fn resolve_local(&mut self, expr: &mut Expression) -> Result<(), ResolverError> {
@@ -247,8 +247,8 @@ impl Resolver {
                 self.current_function = fn_type;
                 self.begin_scope();
                 for param in x.params().iter() {
-                    self.declare(param.lexeme.clone());
-                    self.define(param.lexeme.clone());
+                    self.declare(param)?;
+                    self.define(param);
                 }
                 let result = self.resolve_stmt(&mut *x.body_mut());
                 self.end_scope();
@@ -295,8 +295,8 @@ mod resolver_error_tests {
     #[test]
     fn multiple_declarations() {
         expect_error(
-            "var a = 1; var a = 2;",
-            "Multiple declarations of 'a' in the same scope.",
+            "{ var a = 1; var a = 2; }",
+            "Variable with this name already declared in this scope.",
         );
     }
 

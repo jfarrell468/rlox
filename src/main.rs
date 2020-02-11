@@ -60,13 +60,13 @@ fn run(source: &str) -> bool {
                     true
                 }
                 Err(err) => {
-                    println!("{}", err);
+                    eprintln!("{}", err);
                     false
                 }
             }
         }
         Err(x) => {
-            println!("{}", x);
+            eprintln!("{}", x);
             false
         }
     }

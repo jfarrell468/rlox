@@ -15,11 +15,10 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "[line {}] Parse Error: {}\n  Context: {} {}",
+            "[line {}] Error at '{}': {}",
             self.cur.line,
+            self.cur.lexeme,
             self.message.as_str(),
-            self.prev.lexeme,
-            self.cur.lexeme
         )
     }
 }
@@ -50,10 +49,7 @@ pub fn parse(tokens: &Vec<Token>) -> Result<Vec<Statement>, Box<dyn Error>> {
 macro_rules! consume {
     ($self:expr, TokenType::Identifier, $error:expr) => {
         match $self.peek()?.tokentype.clone() {
-            TokenType::Identifier(name) => {
-                $self.advance();
-                name
-            }
+            TokenType::Identifier(_) => $self.advance(),
             _ => return Err($self.error($error)),
         }
     };
@@ -104,26 +100,30 @@ impl<'a> Parser<'a> {
         }
     }
     fn var_declaration(&mut self) -> Result<Statement, ParseError> {
-        let name = consume!(self, TokenType::Identifier, "Expect variable name.");
-        consume!(
-            self,
-            TokenType::Equal,
-            "Expect '=' after declaring variable name."
-        );
-        let initializer = self.expression()?;
+        let name = consume!(self, TokenType::Identifier, "Expect variable name.").clone();
+
+        let initializer = if matches!(self, TokenType::Equal) {
+            self.expression()?
+        } else {
+            Expression::Literal(Token {
+                tokentype: TokenType::Nil,
+                lexeme: "".to_string(),
+                line: 0
+            })
+        };
         consume!(
             self,
             TokenType::Semicolon,
             "Expect ';' after variable declaration."
         );
-        Ok(Statement::Var { name, initializer })
+        Ok(Statement::Var { name: name.clone(), initializer })
     }
     fn function(&mut self, kind: &str) -> Result<Statement, ParseError> {
         let name = consume!(
             self,
             TokenType::Identifier,
             format!("Expect {} name", kind).as_str()
-        );
+        ).clone();
         consume!(
             self,
             TokenType::LeftParen,
@@ -133,7 +133,7 @@ impl<'a> Parser<'a> {
         if !check!(self, TokenType::RightParen) {
             loop {
                 parameters.push(
-                    consume!(self, TokenType::Identifier(_), "Expect parameter name").clone(),
+                    consume!(self, TokenType::Identifier, "Expect parameter name").clone(),
                 );
                 if !matches!(self, TokenType::Comma) {
                     break;
@@ -144,7 +144,7 @@ impl<'a> Parser<'a> {
 
         consume!(self, TokenType::LeftBrace, "Expect '{' before {} body");
         let body = self.block()?;
-        Ok(Statement::Function(Callable::new(name, parameters, body)))
+        Ok(Statement::Function(Callable::new(name.clone(), parameters, body)))
     }
     fn statement(&mut self) -> Result<Statement, ParseError> {
         match self.peek()?.tokentype {
@@ -308,6 +308,7 @@ impl<'a> Parser<'a> {
         let expr = self.or()?;
         match self.peek()?.tokentype {
             TokenType::Equal => {
+                let err = Err(self.error("Invalid assignment target."));
                 self.advance();
                 let value = self.assignment()?;
                 match expr {
@@ -316,7 +317,7 @@ impl<'a> Parser<'a> {
                         value: Box::new(value),
                         scope: None,
                     }),
-                    _ => Err(self.error("Invalid assignment target.")),
+                    _ => err,
                 }
             }
             _ => Ok(expr),
@@ -566,11 +567,6 @@ mod parse_error_tests {
     #[test]
     fn variable_name() {
         expect_error("var 1;", "Expect variable name.")
-    }
-
-    #[test]
-    fn uninitialized_variable() {
-        expect_error("var a;", "Expect '=' after declaring variable name.")
     }
 
     #[test]

@@ -21,7 +21,7 @@ impl fmt::Display for RuntimeError {
             None => write!(f, "Runtime error: {}", self.message),
             Some(token) => write!(
                 f,
-                "[line {}] Runtime error: {}\n  Context: {}",
+                "[{}] Runtime error: {}\n  Context: {}",
                 token.line, self.message, token.lexeme
             ),
         }
@@ -246,7 +246,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                             Err(RuntimeError::new(
                                 format!(
                                     "Wrong number of arguments to {}. Expected {}, got {}",
-                                    function.name(),
+                                    function.name().lexeme,
                                     function.arity(),
                                     evaluated_arguments.len()
                                 )
@@ -278,7 +278,7 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
             Statement::Expression(e) => self.evaluate(e),
             Statement::Var { name, initializer } => {
                 let val = self.evaluate(initializer)?;
-                self.environment.define(name.clone(), val.clone());
+                self.environment.define(name.lexeme.clone(), val.clone());
                 Ok(val)
             }
             Statement::Block(stmts) => self.execute_block(stmts, self.environment.new_child()),
@@ -304,7 +304,7 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
             }
             Statement::Function(callable) => {
                 self.environment.define(
-                    callable.name().clone(),
+                    callable.name().lexeme.clone(),
                     Value::Callable(callable.clone(), self.environment.clone()),
                 );
                 Ok(Value::Nil)

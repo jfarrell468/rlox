@@ -92,7 +92,7 @@ pub enum Statement {
     Print(Expression),
     Expression(Expression),
     Var {
-        name: String,
+        name: Token,
         initializer: Expression,
     },
     Block(Vec<Statement>),

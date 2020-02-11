@@ -15,7 +15,7 @@ impl fmt::Display for ScanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "[line {}] Scan Error: {}",
+            "[line {}] Error: {}",
             self.line,
             self.message.as_str()
         )
@@ -55,7 +55,7 @@ pub fn scan_tokens(source: &str) -> (Vec<Token>, bool) {
                 }
             }
             Err(e) => {
-                println!("{}", e);
+                eprintln!("{}", e);
                 success = false;
             }
         }
@@ -136,7 +136,7 @@ impl<'a> Scanner<'a> {
             'a'..='z' | 'A'..='Z' | '_' => Ok(Some(self.identifier()?)),
             _ => Err(Box::new(ScanError {
                 line: self.line,
-                message: "Unexpected character".to_string(),
+                message: "Unexpected character.".to_string(),
             })),
         }
     }
@@ -177,14 +177,19 @@ impl<'a> Scanner<'a> {
                 }
                 '\n' => {
                     self.line += 1;
-                    self.advance()?;
+                    self.advance();
                 }
                 _ => {
-                    self.advance()?;
+                    self.advance();
                 }
             }
         }
-        self.advance()?;
+        if !self.advance().is_ok() {
+            return Err(Box::new(ScanError {
+                line: self.line,
+                message: "Unterminated string.".to_string(),
+            }));
+        }
         let current = self.current();
         Ok(self.token(TokenType::String(
             self.source[self.start + 1..current - 1].to_string(),

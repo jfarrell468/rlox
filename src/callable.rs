@@ -13,19 +13,19 @@ pub struct Callable {
 
 #[derive(Debug)]
 struct CallableImpl {
-    name: String,
+    name: Token,
     params: Vec<Token>,
     body: Statement,
 }
 
 impl fmt::Display for Callable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "<fn {}>", self.name())
+        write!(f, "<fn {}>", self.name().lexeme)
     }
 }
 
 impl Callable {
-    pub fn new(name: String, params: Vec<Token>, body: Statement) -> Callable {
+    pub fn new(name: Token, params: Vec<Token>, body: Statement) -> Callable {
         Callable {
             data: Rc::new(RefCell::new(CallableImpl { name, params, body })),
         }
@@ -58,7 +58,7 @@ impl Callable {
     pub fn arity(&self) -> usize {
         self.data.borrow().params.len()
     }
-    pub fn name(&self) -> Ref<String> {
+    pub fn name(&self) -> Ref<Token> {
         Ref::map(self.data.borrow(), |data| &data.name)
     }
     pub fn params(&self) -> Ref<Vec<Token>> {
