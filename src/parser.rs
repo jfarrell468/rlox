@@ -142,7 +142,7 @@ impl<'a> Parser<'a> {
         }
         consume!(self, TokenType::RightParen, "Expect ')' after parameters");
 
-        consume!(self, TokenType::LeftBrace, "Expect '{{' before {} body");
+        consume!(self, TokenType::LeftBrace, "Expect '{' before {} body");
         let body = self.block()?;
         Ok(Statement::Function(Callable::new(name, parameters, body)))
     }
@@ -309,7 +309,6 @@ impl<'a> Parser<'a> {
         match self.peek()?.tokentype {
             TokenType::Equal => {
                 self.advance();
-                //let equals = self.previous();
                 let value = self.assignment()?;
                 match expr {
                     Expression::Variable { name, scope: _ } => Ok(Expression::Assign {
@@ -567,5 +566,115 @@ mod parse_error_tests {
     #[test]
     fn variable_name() {
         expect_error("var 1;", "Expect variable name.")
+    }
+
+    #[test]
+    fn uninitialized_variable() {
+        expect_error("var a;", "Expect '=' after declaring variable name.")
+    }
+
+    #[test]
+    fn variable_declaration_no_semicolon() {
+        expect_error("var a = 1", "Expect ';' after variable declaration.")
+    }
+
+    #[test]
+    fn function_no_name() {
+        expect_error("fun", "Expect function name")
+    }
+
+    #[test]
+    fn function_no_left_paren() {
+        expect_error("fun foo", "Expect '(' after function name")
+    }
+
+    #[test]
+    fn function_bad_param() {
+        expect_error("fun foo(1)", "Expect parameter name")
+    }
+
+    #[test]
+    fn function_no_right_paren() {
+        expect_error("fun foo(a", "Expect ')' after parameters")
+    }
+
+    #[test]
+    fn function_no_body() {
+        expect_error("fun foo(a);", "Expect '{' before {} body")
+    }
+
+    #[test]
+    fn return_no_semicolon() {
+        expect_error("fun foo(a) { return 1 }", "Expect ';' after return value")
+    }
+
+    #[test]
+    fn for_no_left_paren() {
+        expect_error("for", "Expect '(' after 'for'.")
+    }
+
+    #[test]
+    fn for_no_semicolon() {
+        expect_error("for(var a=1; a<10", "Expect ';' after for loop condition.")
+    }
+
+    #[test]
+    fn for_no_right_paren() {
+        expect_error("for(var a=1; a<10; a=a+1", "Expect ')' after for loop clauses.")
+    }
+
+    #[test]
+    fn while_no_left_paren() {
+        expect_error("while", "Expect '(' after 'while'.")
+    }
+
+    #[test]
+    fn while_no_right_paren() {
+        expect_error("while(true", "Expect ')' after while condition.")
+    }
+
+    #[test]
+    fn if_no_left_paren() {
+        expect_error("if", "Expect '(' after 'if'.")
+    }
+
+    #[test]
+    fn if_no_right_paren() {
+        expect_error("if(true", "Expect ')' after if condition.")
+    }
+
+    #[test]
+    fn block_no_right_brace() {
+        expect_error("{", "Expect '}' after block")
+    }
+
+    #[test]
+    fn print_no_semicolon() {
+        expect_error("print 1", "Expect ';' after value.")
+    }
+
+    #[test]
+    fn expression_no_semicolon() {
+        expect_error("1", "Expect ';' after expression.")
+    }
+
+    #[test]
+    fn assignment_invalid_target() {
+        expect_error("1 = 2;", "Invalid assignment target.")
+    }
+
+    #[test]
+    fn fn_call_no_right_paren() {
+        expect_error("foo(1", "Expect ')' after function arguments.")
+    }
+
+    #[test]
+    fn grouping_no_right_paren() {
+        expect_error("(1", "Expect ')' after expression.")
+    }
+
+    #[test]
+    fn bad_expression() {
+        expect_error("1 + if", "Expect expression.")
     }
 }
