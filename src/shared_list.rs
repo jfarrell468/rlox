@@ -1,5 +1,4 @@
 use std::cell::{Ref, RefCell, RefMut};
-use std::fmt::Debug;
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
@@ -82,7 +81,6 @@ impl<T> Drop for SharedList<T> {
 #[cfg(test)]
 mod tests {
     use crate::shared_list::SharedList;
-    use std::ops::Deref;
 
     #[test]
     fn push_peek_pop() {

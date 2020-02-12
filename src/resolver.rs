@@ -1,4 +1,4 @@
-use crate::ast::{AstPrinter, Expression, MutatingVisitor, Statement};
+use crate::ast::{Expression, MutatingVisitor, Statement};
 use crate::token::Token;
 use std::collections::BTreeMap;
 use std::error::Error;
@@ -151,12 +151,10 @@ impl MutatingVisitor<Statement, Result<(), ResolverError>> for Resolver {
 
 impl Resolver {
     pub fn new() -> Resolver {
-        let mut resolver = Resolver {
+        Resolver {
             scopes: Vec::new(),
             current_function: FunctionType::None,
-        };
-        resolver.begin_scope();
-        resolver
+        }
     }
     fn resolve_expr(&mut self, expr: &mut Expression) -> Result<(), ResolverError> {
         expr.accept_mut(self)
@@ -207,7 +205,7 @@ impl Resolver {
                     token: None,
                 });
             }
-        };
+        }.clone();
         for (i, cur_scope) in self.scopes.iter().enumerate().rev() {
             if cur_scope.contains_key(&token.lexeme) {
                 match expr {
@@ -228,7 +226,7 @@ impl Resolver {
                             message:
                                 "Can only resolve an expression of type 'variable' or 'assign'."
                                     .to_string(),
-                            token: Some(token.clone()),
+                            token: Some(token),
                         });
                     }
                 }
@@ -250,7 +248,7 @@ impl Resolver {
                     self.declare(param)?;
                     self.define(param);
                 }
-                let result = self.resolve_stmt(&mut *x.body_mut());
+                let result = self.resolve(&mut *x.body_mut());
                 self.end_scope();
                 self.current_function = enclosing_fn;
                 result
@@ -287,7 +285,7 @@ mod resolver_error_tests {
     #[test]
     fn variable_referenced_in_initializer() {
         expect_error(
-            "var a = a;",
+            "{ var a = a; }",
             "Cannot read local variable in its own initializer.",
         );
     }

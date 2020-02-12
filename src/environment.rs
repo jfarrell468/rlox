@@ -48,13 +48,7 @@ impl Environment {
     pub fn define(&mut self, name: String, value: Value) -> Result<(), ErrorType> {
         self.values.peek_mut().map_or(
             Err(Environment::error("Empty environment".to_string(), None)),
-            |mut map| match (*map).insert(name.clone(), value) {
-                None => Ok(()),
-                Some(_) => Err(Environment::error(
-                    format!("Multiple definitions for {}", name),
-                    None,
-                )),
-            },
+            |mut map| { (*map).insert(name.clone(), value); Ok(()) }
         )
     }
     pub fn get_at(&self, token: &Token, distance: usize) -> Result<Value, ErrorType> {

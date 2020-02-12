@@ -8,9 +8,6 @@ mod scanner;
 mod shared_list;
 mod token;
 
-use crate::ast::Value;
-use crate::interpreter::ErrorType;
-use crate::resolver::ResolverError;
 use std::env;
 use std::fs;
 use std::io::{self, Write};

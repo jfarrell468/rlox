@@ -1,7 +1,6 @@
-use crate::ast::{Expression, MutatingVisitor, Statement, Value, Visitor};
+use crate::ast::{Expression, Statement, Value, Visitor};
 use crate::environment::{Environment, EnvironmentError};
 use crate::token::{Token, TokenType};
-use std::cell::Ref;
 use std::error::Error;
 use std::fmt;
 
@@ -32,16 +31,6 @@ impl RuntimeError {
     pub fn new(msg: &str, token: Option<Token>) -> ErrorType {
         ErrorType::RuntimeError(RuntimeError {
             message: msg.to_string(),
-            token,
-        })
-    }
-    pub fn type_error(expected: &Value, actual: &Value, token: Option<Token>) -> ErrorType {
-        ErrorType::RuntimeError(RuntimeError {
-            message: format!(
-                "Type error: Expected {}, got {}",
-                expected.type_str(),
-                actual.type_str()
-            ),
             token,
         })
     }
@@ -292,7 +281,7 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
                 self.environment.define(
                     callable.name().lexeme.clone(),
                     Value::Callable(callable.clone(), self.environment.clone()),
-                );
+                )?;
                 Ok(Value::Nil)
             }
             Statement::Return { keyword: _, value } => {

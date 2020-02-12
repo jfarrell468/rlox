@@ -1,6 +1,6 @@
 use crate::ast::{Statement, Value};
 use crate::environment::Environment;
-use crate::interpreter::{ErrorType, Interpreter, RuntimeError};
+use crate::interpreter::{ErrorType, Interpreter};
 use crate::token::Token;
 use std::cell::{Ref, RefCell, RefMut};
 use std::fmt;
@@ -15,7 +15,7 @@ pub struct Callable {
 struct CallableImpl {
     name: Token,
     params: Vec<Token>,
-    body: Statement,
+    body: Vec<Statement>,
 }
 
 impl fmt::Display for Callable {
@@ -25,7 +25,7 @@ impl fmt::Display for Callable {
 }
 
 impl Callable {
-    pub fn new(name: Token, params: Vec<Token>, body: Statement) -> Callable {
+    pub fn new(name: Token, params: Vec<Token>, body: Vec<Statement>) -> Callable {
         Callable {
             data: Rc::new(RefCell::new(CallableImpl { name, params, body })),
         }
@@ -41,9 +41,7 @@ impl Callable {
         for param_and_val in self.params().iter().zip(arguments.iter()) {
             environment.define(param_and_val.0.lexeme.clone(), param_and_val.1.clone())?;
         }
-        match &self.data.borrow().body {
-            Statement::Block(stmts) => {
-                let result = interpreter.execute_block(stmts, environment.new_child());
+                let result = interpreter.execute_block(&*self.body(), environment);
                 match result {
                     Ok(v) => Ok(v),
                     Err(e) => match e {
@@ -51,9 +49,6 @@ impl Callable {
                         _ => Err(e),
                     },
                 }
-            }
-            _ => Err(RuntimeError::new("Function body has wrong type", None)),
-        }
     }
     pub fn arity(&self) -> usize {
         self.data.borrow().params.len()
@@ -64,10 +59,10 @@ impl Callable {
     pub fn params(&self) -> Ref<Vec<Token>> {
         Ref::map(self.data.borrow(), |data| &data.params)
     }
-    pub fn body(&mut self) -> Ref<Statement> {
+    pub fn body(&self) -> Ref<Vec<Statement>> {
         Ref::map(self.data.borrow(), |data| &data.body)
     }
-    pub fn body_mut(&mut self) -> RefMut<Statement> {
+    pub fn body_mut(&mut self) -> RefMut<Vec<Statement>> {
         RefMut::map(self.data.borrow_mut(), |data| &mut data.body)
     }
 }

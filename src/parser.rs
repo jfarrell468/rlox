@@ -136,8 +136,11 @@ impl<'a> Parser<'a> {
         let mut parameters: Vec<Token> = Vec::new();
         if !check!(self, TokenType::RightParen) {
             loop {
+                if parameters.len() >= 255 {
+                    return Err(self.error("Cannot have more than 255 parameters."));
+                }
                 parameters
-                    .push(consume!(self, TokenType::Identifier, "Expect parameter name").clone());
+                    .push(consume!(self, TokenType::Identifier, "Expect parameter name.").clone());
                 if !matches!(self, TokenType::Comma) {
                     break;
                 }
@@ -169,7 +172,7 @@ impl<'a> Parser<'a> {
             }
             TokenType::LeftBrace => {
                 self.advance();
-                self.block()
+                Ok(Statement::Block(self.block()?))
             }
             TokenType::While => {
                 self.advance();
@@ -291,7 +294,7 @@ impl<'a> Parser<'a> {
             }),
         }
     }
-    fn block(&mut self) -> Result<Statement, ParseError> {
+    fn block(&mut self) -> Result<Vec<Statement>, ParseError> {
         let mut statements: Vec<Statement> = Vec::new();
         while !self.is_at_end() {
             if let TokenType::RightBrace = self.peek()?.tokentype {
@@ -300,7 +303,7 @@ impl<'a> Parser<'a> {
             statements.push(self.declaration()?);
         }
         consume!(self, TokenType::RightBrace, "Expect '}' after block");
-        Ok(Statement::Block(statements))
+        Ok(statements)
     }
     fn print_statement(&mut self) -> Result<Statement, ParseError> {
         let expr = self.expression()?;
@@ -447,7 +450,9 @@ impl<'a> Parser<'a> {
             TokenType::RightParen => (),
             _ => {
                 loop {
-                    // TODO: Restrict max args to 255.
+                    if arguments.len() >= 255 {
+                        return Err(self.error("Cannot have more than 255 arguments."));
+                    }
                     arguments.push(self.expression()?);
                     match self.peek()?.tokentype {
                         TokenType::Comma => self.advance(),
@@ -597,7 +602,7 @@ mod parse_error_tests {
 
     #[test]
     fn function_bad_param() {
-        expect_error("fun foo(1)", "Expect parameter name")
+        expect_error("fun foo(1)", "Expect parameter name.")
     }
 
     #[test]

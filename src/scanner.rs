@@ -172,10 +172,10 @@ impl<'a> Scanner<'a> {
                 }
                 '\n' => {
                     self.line += 1;
-                    self.advance();
+                    self.advance().unwrap();
                 }
                 _ => {
-                    self.advance();
+                    self.advance().unwrap();
                 }
             }
         }

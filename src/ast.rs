@@ -19,7 +19,7 @@ impl fmt::Display for Value {
             Value::Nil => write!(f, "nil"),
             Value::Boolean(x) => write!(f, "{}", x),
             Value::Number(x) => {
-                if (x.is_sign_negative()) {
+                if x.is_sign_negative() {
                     write!(f, "-{}", -x)
                 } else {
                     write!(f, "{}", x)
@@ -27,17 +27,6 @@ impl fmt::Display for Value {
             }
             Value::String(x) => write!(f, "{}", x),
             Value::Callable(x, _) => write!(f, "{}", x),
-        }
-    }
-}
-impl Value {
-    pub fn type_str(&self) -> &str {
-        match self {
-            Value::Nil => "nil",
-            Value::Boolean(_) => "boolean",
-            Value::Number(_) => "number",
-            Value::String(_) => "string",
-            Value::Callable(_, _) => "callable",
         }
     }
 }
