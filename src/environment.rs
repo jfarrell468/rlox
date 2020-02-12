@@ -15,12 +15,8 @@ pub struct EnvironmentError {
 impl<'a> fmt::Display for EnvironmentError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.token {
-            None => write!(f, "Variable error: {}", self.message),
-            Some(token) => write!(
-                f,
-                "[line {}] Variable error: {}\n  Context: {}",
-                token.line, self.message, token.lexeme
-            ),
+            None => write!(f, "Runtime error: {}", self.message),
+            Some(token) => write!(f, "{}\n[line {}] ", self.message, token.line),
         }
     }
 }
@@ -70,7 +66,7 @@ impl Environment {
             |map| match (*map).get(&token.lexeme) {
                 Some(val) => Ok(val.clone()),
                 None => Err(Environment::error(
-                    "Can't get undefined variable".to_string(),
+                    format!("Undefined variable '{}'.", token.lexeme),
                     Some(token.clone()),
                 )),
             },
@@ -90,7 +86,7 @@ impl Environment {
             |mut map| match (*map).insert(token.lexeme.clone(), value) {
                 Some(_) => Ok(()),
                 None => Err(Environment::error(
-                    "Can't assign undefined variable".to_string(),
+                    format!("Undefined variable '{}'.", token.lexeme),
                     Some(token),
                 )),
             },

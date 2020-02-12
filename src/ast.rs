@@ -18,7 +18,13 @@ impl fmt::Display for Value {
         match self {
             Value::Nil => write!(f, "nil"),
             Value::Boolean(x) => write!(f, "{}", x),
-            Value::Number(x) => write!(f, "{}", x),
+            Value::Number(x) => {
+                if (x.is_sign_negative()) {
+                    write!(f, "-{}", -x)
+                } else {
+                    write!(f, "{}", x)
+                }
+            }
             Value::String(x) => write!(f, "{}", x),
             Value::Callable(x, _) => write!(f, "{}", x),
         }

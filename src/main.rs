@@ -8,6 +8,8 @@ mod scanner;
 mod shared_list;
 mod token;
 
+use crate::ast::Value;
+use crate::interpreter::ErrorType;
 use crate::resolver::ResolverError;
 use std::env;
 use std::fs;
@@ -28,8 +30,12 @@ fn main() {
 
 fn run_file(file: &str) {
     let contents = fs::read_to_string(file).expect("Something went wrong reading the file");
-    if !run(&contents) {
+    let result = run(&contents);
+    if !result.0 {
         std::process::exit(65);
+    }
+    if !result.1 {
+        std::process::exit(70);
     }
 }
 
@@ -45,10 +51,10 @@ fn run_prompt() {
     }
 }
 
-fn run(source: &str) -> bool {
+fn run(source: &str) -> (bool, bool) {
     let (tokens, success) = scanner::scan_tokens(source);
     if !success {
-        return success;
+        return (false, true);
     }
     match &mut parser::parse(&tokens) {
         Ok(statements) => {
@@ -56,18 +62,23 @@ fn run(source: &str) -> bool {
             match resolver.resolve(statements) {
                 Ok(_) => {
                     let mut interpreter = interpreter::Interpreter::new();
-                    interpreter.interpret(statements);
-                    true
+                    match interpreter.interpret(statements) {
+                        Ok(_) => (true, true),
+                        Err(err) => {
+                            eprintln!("{}", err);
+                            (true, false)
+                        }
+                    }
                 }
                 Err(err) => {
                     eprintln!("{}", err);
-                    false
+                    (false, true)
                 }
             }
         }
         Err(x) => {
             eprintln!("{}", x);
-            false
+            (false, true)
         }
     }
 }

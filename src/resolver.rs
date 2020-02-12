@@ -177,15 +177,15 @@ impl Resolver {
         self.scopes.pop();
     }
     fn declare(&mut self, name: &Token) -> Result<(), ResolverError> {
-        self.scopes
-            .last_mut()
-            .map_or(Ok(()), |scope| match scope.insert(name.lexeme.clone(), false) {
+        self.scopes.last_mut().map_or(Ok(()), |scope| {
+            match scope.insert(name.lexeme.clone(), false) {
                 None => Ok(()),
                 Some(_) => Err(ResolverError {
                     message: "Variable with this name already declared in this scope.".to_string(),
                     token: Some(name.clone()),
                 }),
-            })
+            }
+        })
     }
     fn define(&mut self, name: &Token) {
         if let Some(scope) = self.scopes.last_mut() {

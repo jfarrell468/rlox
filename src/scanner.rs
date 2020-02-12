@@ -13,12 +13,7 @@ struct ScanError {
 
 impl fmt::Display for ScanError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "[line {}] Error: {}",
-            self.line,
-            self.message.as_str()
-        )
+        write!(f, "[line {}] Error: {}", self.line, self.message.as_str())
     }
 }
 

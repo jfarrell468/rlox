@@ -108,7 +108,7 @@ impl<'a> Parser<'a> {
             Expression::Literal(Token {
                 tokentype: TokenType::Nil,
                 lexeme: "".to_string(),
-                line: 0
+                line: 0,
             })
         };
         consume!(
@@ -116,14 +116,18 @@ impl<'a> Parser<'a> {
             TokenType::Semicolon,
             "Expect ';' after variable declaration."
         );
-        Ok(Statement::Var { name: name.clone(), initializer })
+        Ok(Statement::Var {
+            name: name.clone(),
+            initializer,
+        })
     }
     fn function(&mut self, kind: &str) -> Result<Statement, ParseError> {
         let name = consume!(
             self,
             TokenType::Identifier,
             format!("Expect {} name", kind).as_str()
-        ).clone();
+        )
+        .clone();
         consume!(
             self,
             TokenType::LeftParen,
@@ -132,19 +136,26 @@ impl<'a> Parser<'a> {
         let mut parameters: Vec<Token> = Vec::new();
         if !check!(self, TokenType::RightParen) {
             loop {
-                parameters.push(
-                    consume!(self, TokenType::Identifier, "Expect parameter name").clone(),
-                );
+                parameters
+                    .push(consume!(self, TokenType::Identifier, "Expect parameter name").clone());
                 if !matches!(self, TokenType::Comma) {
                     break;
                 }
             }
         }
-        consume!(self, TokenType::RightParen, "Expect ')' after parameters");
+        consume!(self, TokenType::RightParen, "Expect ')' after parameters.");
 
-        consume!(self, TokenType::LeftBrace, "Expect '{' before {} body");
+        consume!(
+            self,
+            TokenType::LeftBrace,
+            &format!("Expect '{{' before {} body.", kind)
+        );
         let body = self.block()?;
-        Ok(Statement::Function(Callable::new(name.clone(), parameters, body)))
+        Ok(Statement::Function(Callable::new(
+            name.clone(),
+            parameters,
+            body,
+        )))
     }
     fn statement(&mut self) -> Result<Statement, ParseError> {
         match self.peek()?.tokentype {
@@ -591,12 +602,12 @@ mod parse_error_tests {
 
     #[test]
     fn function_no_right_paren() {
-        expect_error("fun foo(a", "Expect ')' after parameters")
+        expect_error("fun foo(a", "Expect ')' after parameters.")
     }
 
     #[test]
     fn function_no_body() {
-        expect_error("fun foo(a);", "Expect '{' before {} body")
+        expect_error("fun foo(a);", "Expect '{' before function body.")
     }
 
     #[test]
@@ -616,7 +627,10 @@ mod parse_error_tests {
 
     #[test]
     fn for_no_right_paren() {
-        expect_error("for(var a=1; a<10; a=a+1", "Expect ')' after for loop clauses.")
+        expect_error(
+            "for(var a=1; a<10; a=a+1",
+            "Expect ')' after for loop clauses.",
+        )
     }
 
     #[test]

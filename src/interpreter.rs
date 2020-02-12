@@ -18,12 +18,8 @@ pub struct RuntimeError {
 impl fmt::Display for RuntimeError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.token {
-            None => write!(f, "Runtime error: {}", self.message),
-            Some(token) => write!(
-                f,
-                "[{}] Runtime error: {}\n  Context: {}",
-                token.line, self.message, token.lexeme
-            ),
+            None => write!(f, "{}", self.message),
+            Some(token) => write!(f, "{}\n[line {}]", self.message, token.line),
         }
     }
 }
@@ -105,9 +101,8 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                 match operator.tokentype {
                     TokenType::Minus => match rv {
                         Value::Number(r) => Ok(Value::Number(-r)),
-                        _ => Err(RuntimeError::type_error(
-                            &Value::Number(0.0),
-                            &rv,
+                        _ => Err(RuntimeError::new(
+                            "Operand must be a number.",
                             Some(operator.clone()),
                         )),
                     },
@@ -125,67 +120,59 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
             } => {
                 let lv = self.evaluate(left)?;
                 let rv = self.evaluate(right)?;
-                match &lv {
-                    Value::Number(l) => match &rv {
-                        Value::Number(r) => match operator.tokentype {
-                            TokenType::Minus => Ok(Value::Number(l - r)),
-                            TokenType::Slash => Ok(Value::Number(l / r)),
-                            TokenType::Star => Ok(Value::Number(l * r)),
-                            TokenType::Plus => Ok(Value::Number(l + r)),
-                            TokenType::Greater => Ok(Value::Boolean(l > r)),
-                            TokenType::GreaterEqual => Ok(Value::Boolean(l >= r)),
-                            TokenType::Less => Ok(Value::Boolean(l < r)),
-                            TokenType::LessEqual => Ok(Value::Boolean(l <= r)),
-                            TokenType::EqualEqual => Ok(Value::Boolean(l == r)),
-                            TokenType::BangEqual => Ok(Value::Boolean(l != r)),
+                match operator.tokentype {
+                    TokenType::EqualEqual => Ok(Value::Boolean(is_equal(&lv, &rv))),
+                    TokenType::BangEqual => Ok(Value::Boolean(!is_equal(&lv, &rv))),
+                    TokenType::Plus => match &lv {
+                        Value::Number(l) => match &rv {
+                            Value::Number(r) => Ok(Value::Number(l + r)),
                             _ => Err(RuntimeError::new(
-                                "Invalid numerical operand",
+                                "Operands must be two numbers or two strings.",
                                 Some(operator.clone()),
                             )),
                         },
-                        _ => Err(RuntimeError::type_error(&lv, &rv, Some(operator.clone()))),
-                    },
-                    Value::String(l) => match &rv {
-                        Value::String(r) => match operator.tokentype {
-                            TokenType::Plus => {
+                        Value::String(l) => match &rv {
+                            Value::String(r) => {
                                 let mut joined = l.clone();
                                 joined.push_str(r.as_str());
                                 Ok(Value::String(joined))
                             }
-                            TokenType::EqualEqual => Ok(Value::Boolean(l == r)),
-                            TokenType::BangEqual => Ok(Value::Boolean(l != r)),
                             _ => Err(RuntimeError::new(
-                                "Invalid string operand",
+                                "Operands must be two numbers or two strings.",
                                 Some(operator.clone()),
                             )),
                         },
-                        _ => Err(RuntimeError::type_error(&lv, &rv, Some(operator.clone()))),
+                        _ => Err(RuntimeError::new(
+                            "Operands must be two numbers or two strings.",
+                            Some(operator.clone()),
+                        )),
                     },
-                    Value::Boolean(l) => match &rv {
-                        Value::Boolean(r) => match operator.tokentype {
-                            TokenType::EqualEqual => Ok(Value::Boolean(l == r)),
-                            TokenType::BangEqual => Ok(Value::Boolean(l != r)),
+                    _ => match &lv {
+                        Value::Number(l) => match &rv {
+                            Value::Number(r) => match operator.tokentype {
+                                TokenType::Minus => Ok(Value::Number(l - r)),
+                                TokenType::Slash => Ok(Value::Number(l / r)),
+                                TokenType::Star => Ok(Value::Number(l * r)),
+                                TokenType::Plus => Ok(Value::Number(l + r)),
+                                TokenType::Greater => Ok(Value::Boolean(l > r)),
+                                TokenType::GreaterEqual => Ok(Value::Boolean(l >= r)),
+                                TokenType::Less => Ok(Value::Boolean(l < r)),
+                                TokenType::LessEqual => Ok(Value::Boolean(l <= r)),
+                                _ => Err(RuntimeError::new(
+                                    "Invalid numerical operand",
+                                    Some(operator.clone()),
+                                )),
+                            },
                             _ => Err(RuntimeError::new(
-                                "Invalid boolean operand",
+                                "Operands must be numbers.",
                                 Some(operator.clone()),
                             )),
                         },
-                        _ => Err(RuntimeError::type_error(&lv, &rv, Some(operator.clone()))),
+                        _ => Err(RuntimeError::new(
+                            "Operands must be numbers.",
+                            Some(operator.clone()),
+                        )),
                     },
-                    Value::Nil => match &rv {
-                        Value::Nil => match operator.tokentype {
-                            // nil == nil
-                            TokenType::EqualEqual => Ok(Value::Boolean(true)),
-                            TokenType::BangEqual => Ok(Value::Boolean(false)),
-                            _ => Ok(Value::Nil),
-                        },
-                        _ => Ok(Value::Nil),
-                    },
-                    // Callable?
-                    _ => Err(RuntimeError::new(
-                        "Invalid binary expression",
-                        Some(operator.clone()),
-                    )),
                 }
             }
             Expression::Variable { name, scope } => match scope {
@@ -245,8 +232,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                         if function.arity() != evaluated_arguments.len() {
                             Err(RuntimeError::new(
                                 format!(
-                                    "Wrong number of arguments to {}. Expected {}, got {}",
-                                    function.name().lexeme,
+                                    "Expected {} arguments but got {}.",
                                     function.arity(),
                                     evaluated_arguments.len()
                                 )
@@ -258,7 +244,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                         }
                     }
                     _ => Err(RuntimeError::new(
-                        format!("{} not callable", evaluated_callee.type_str()).as_str(),
+                        "Can only call functions and classes.",
                         Some(paren.clone()),
                     )),
                 }
@@ -278,7 +264,7 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
             Statement::Expression(e) => self.evaluate(e),
             Statement::Var { name, initializer } => {
                 let val = self.evaluate(initializer)?;
-                self.environment.define(name.lexeme.clone(), val.clone());
+                self.environment.define(name.lexeme.clone(), val.clone())?;
                 Ok(val)
             }
             Statement::Block(stmts) => self.execute_block(stmts, self.environment.new_child()),
@@ -363,11 +349,10 @@ fn is_truthy(x: &Value) -> bool {
         Value::Boolean(x) => *x,
         Value::Number(_) => true,
         Value::String(_) => true,
-        Value::Callable(_, _) => false,
+        Value::Callable(_, _) => true,
     }
 }
 
-// TODO: This isn't wired in correctly.
 fn is_equal(lv: &Value, rv: &Value) -> bool {
     match lv {
         Value::Nil => match rv {
