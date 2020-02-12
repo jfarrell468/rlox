@@ -1,4 +1,4 @@
-use crate::callable::Callable;
+use crate::callable::{Callable, NativeFunction};
 use crate::environment::Environment;
 use crate::token::{Token, TokenType};
 use std::fmt;
@@ -11,6 +11,7 @@ pub enum Value {
     Number(f64),
     String(String),
     Callable(Callable, Environment),
+    NativeFunction(NativeFunction),
 }
 
 impl fmt::Display for Value {
@@ -27,6 +28,7 @@ impl fmt::Display for Value {
             }
             Value::String(x) => write!(f, "{}", x),
             Value::Callable(x, _) => write!(f, "{}", x),
+            Value::NativeFunction(x) => write!(f, "{}", x),
         }
     }
 }

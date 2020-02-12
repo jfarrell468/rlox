@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Debug)]
-struct ParseError {
+pub struct ParseError {
     message: String,
     prev: Token,
     cur: Token,
@@ -34,16 +34,23 @@ struct Parser<'a> {
     current: usize,
 }
 
-pub fn parse(tokens: &Vec<Token>) -> Result<Vec<Statement>, Box<dyn Error>> {
+pub fn parse(tokens: &Vec<Token>) -> (Vec<Statement>, Option<ParseError>) {
     let mut parser = Parser {
         tokens: tokens,
         current: 0,
     };
     let mut statements: Vec<Statement> = Vec::new();
+    let mut last_err: Option<ParseError> = None;
     while !parser.is_at_end() {
-        statements.push(parser.declaration()?);
+        match parser.declaration() {
+            Ok(stmt) => statements.push(stmt),
+            Err(err) => {
+                eprintln!("{}", err);
+                last_err = Some(err);
+            }
+        }
     }
-    Ok(statements)
+    (statements, last_err)
 }
 
 macro_rules! consume {
@@ -98,6 +105,10 @@ impl<'a> Parser<'a> {
             }
             _ => self.statement(),
         }
+        .or_else(|err| {
+            self.synchronize();
+            Err(err)
+        })
     }
     fn var_declaration(&mut self) -> Result<Statement, ParseError> {
         let name = consume!(self, TokenType::Identifier, "Expect variable name.").clone();
@@ -448,25 +459,18 @@ impl<'a> Parser<'a> {
         let mut arguments: Vec<Expression> = Vec::new();
         match self.peek()?.tokentype {
             TokenType::RightParen => (),
-            _ => {
-                loop {
-                    if arguments.len() >= 255 {
-                        return Err(self.error("Cannot have more than 255 arguments."));
-                    }
-                    arguments.push(self.expression()?);
-                    match self.peek()?.tokentype {
-                        TokenType::Comma => self.advance(),
-                        _ => break,
-                    };
+            _ => loop {
+                if arguments.len() >= 255 {
+                    return Err(self.error("Cannot have more than 255 arguments."));
                 }
-            }
+                arguments.push(self.expression()?);
+                match self.peek()?.tokentype {
+                    TokenType::Comma => self.advance(),
+                    _ => break,
+                };
+            },
         }
-        let paren = consume!(
-            self,
-            TokenType::RightParen,
-            "Expect ')' after function arguments."
-        )
-        .clone();
+        let paren = consume!(self, TokenType::RightParen, "Expect ')' after arguments.").clone();
         Ok(Expression::Call {
             callee: Box::new(callee),
             paren: paren,
@@ -557,8 +561,8 @@ mod parse_tests {
     fn expect_success(source: &str) {
         let (tokens, success) = scanner::scan_tokens(source);
         assert!(success);
-        let result = parser::parse(&tokens);
-        assert!(result.is_ok(), "{}", result.err().unwrap());
+        let (_, last_err) = parser::parse(&tokens);
+        assert!(last_err.is_none(), "{}", last_err.unwrap());
     }
 
     #[test]
@@ -571,13 +575,14 @@ mod parse_tests {
 mod parse_error_tests {
     use crate::parser;
     use crate::scanner;
+    use std::error::Error;
 
     fn expect_error(source: &str, expected_description: &str) {
         let (tokens, success) = scanner::scan_tokens(source);
         assert!(success);
-        let result = parser::parse(&tokens);
-        assert!(!result.is_ok());
-        assert_eq!(result.err().unwrap().description(), expected_description)
+        let (_, last_err) = parser::parse(&tokens);
+        assert!(last_err.is_some());
+        assert_eq!(last_err.unwrap().description(), expected_description)
     }
 
     #[test]
@@ -680,7 +685,7 @@ mod parse_error_tests {
 
     #[test]
     fn fn_call_no_right_paren() {
-        expect_error("foo(1", "Expect ')' after function arguments.")
+        expect_error("foo(1", "Expect ')' after arguments.")
     }
 
     #[test]

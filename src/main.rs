@@ -49,32 +49,26 @@ fn run_prompt() {
 }
 
 fn run(source: &str) -> (bool, bool) {
-    let (tokens, success) = scanner::scan_tokens(source);
-    if !success {
+    let (tokens, scan_success) = scanner::scan_tokens(source);
+    let (mut statements, parse_err) = parser::parse(&tokens);
+    if !scan_success || parse_err.is_some() {
         return (false, true);
     }
-    match &mut parser::parse(&tokens) {
-        Ok(statements) => {
-            let mut resolver = resolver::Resolver::new();
-            match resolver.resolve(statements) {
-                Ok(_) => {
-                    let mut interpreter = interpreter::Interpreter::new();
-                    match interpreter.interpret(statements) {
-                        Ok(_) => (true, true),
-                        Err(err) => {
-                            eprintln!("{}", err);
-                            (true, false)
-                        }
-                    }
-                }
+
+    let mut resolver = resolver::Resolver::new();
+    match resolver.resolve(&mut statements) {
+        Ok(_) => {
+            let mut interpreter = interpreter::Interpreter::new();
+            match interpreter.interpret(&statements) {
+                Ok(_) => (scan_success, true),
                 Err(err) => {
                     eprintln!("{}", err);
-                    (false, true)
+                    (scan_success, false)
                 }
             }
         }
-        Err(x) => {
-            eprintln!("{}", x);
+        Err(err) => {
+            eprintln!("{}", err);
             (false, true)
         }
     }

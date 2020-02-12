@@ -4,6 +4,7 @@ use crate::interpreter::{ErrorType, Interpreter};
 use crate::token::Token;
 use std::cell::{Ref, RefCell, RefMut};
 use std::fmt;
+use std::fmt::Debug;
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
@@ -33,7 +34,7 @@ impl Callable {
     pub fn call(
         &self,
         interpreter: &mut Interpreter,
-        arguments: Vec<Value>,
+        arguments: &Vec<Value>,
         closure: Environment,
     ) -> Result<Value, ErrorType> {
         let mut environment = closure.new_child();
@@ -41,14 +42,14 @@ impl Callable {
         for param_and_val in self.params().iter().zip(arguments.iter()) {
             environment.define(param_and_val.0.lexeme.clone(), param_and_val.1.clone())?;
         }
-                let result = interpreter.execute_block(&*self.body(), environment);
-                match result {
-                    Ok(v) => Ok(v),
-                    Err(e) => match e {
-                        ErrorType::Return(v) => Ok(v.0),
-                        _ => Err(e),
-                    },
-                }
+        let result = interpreter.execute_block(&*self.body(), environment);
+        match result {
+            Ok(v) => Ok(v),
+            Err(e) => match e {
+                ErrorType::Return(v) => Ok(v.0),
+                _ => Err(e),
+            },
+        }
     }
     pub fn arity(&self) -> usize {
         self.data.borrow().params.len()
@@ -64,5 +65,23 @@ impl Callable {
     }
     pub fn body_mut(&mut self) -> RefMut<Vec<Statement>> {
         RefMut::map(self.data.borrow_mut(), |data| &mut data.body)
+    }
+}
+
+#[derive(Clone)]
+pub struct NativeFunction {
+    pub call: fn(&Vec<Value>) -> Value,
+    pub arity: usize,
+}
+
+impl Debug for NativeFunction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<native fn>")
+    }
+}
+
+impl fmt::Display for NativeFunction {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "<native fn>")
     }
 }

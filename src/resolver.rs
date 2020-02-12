@@ -205,7 +205,8 @@ impl Resolver {
                     token: None,
                 });
             }
-        }.clone();
+        }
+        .clone();
         for (i, cur_scope) in self.scopes.iter().enumerate().rev() {
             if cur_scope.contains_key(&token.lexeme) {
                 match expr {
@@ -271,11 +272,10 @@ mod resolver_error_tests {
     fn expect_error(source: &str, expected_error: &str) {
         let (tokens, success) = scanner::scan_tokens(source);
         assert!(success);
-        let result = parser::parse(&tokens);
-        assert!(result.is_ok(), "{}", result.err().unwrap());
-        let mut ast = result.unwrap();
+        let (mut statements, last_err) = parser::parse(&tokens);
+        assert!(last_err.is_none(), "{}", last_err.unwrap());
         let mut resolver = resolver::Resolver::new();
-        let result = resolver.resolve(&mut ast);
+        let result = resolver.resolve(&mut statements);
         assert!(result.is_err());
         result.err().map(|err| {
             assert_eq!(err.description(), expected_error);

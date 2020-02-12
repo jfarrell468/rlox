@@ -1,8 +1,10 @@
 use crate::ast::{Expression, Statement, Value, Visitor};
+use crate::callable::NativeFunction;
 use crate::environment::{Environment, EnvironmentError};
 use crate::token::{Token, TokenType};
 use std::error::Error;
 use std::fmt;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct Interpreter {
     globals: Environment,
@@ -229,7 +231,22 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                                 Some(paren.clone()),
                             ))
                         } else {
-                            function.call(self, evaluated_arguments, closure)
+                            function.call(self, &evaluated_arguments, closure)
+                        }
+                    }
+                    Value::NativeFunction(function) => {
+                        if function.arity != evaluated_arguments.len() {
+                            Err(RuntimeError::new(
+                                format!(
+                                    "Expected {} arguments but got {}.",
+                                    function.arity,
+                                    evaluated_arguments.len()
+                                )
+                                .as_str(),
+                                Some(paren.clone()),
+                            ))
+                        } else {
+                            Ok((function.call)(&evaluated_arguments))
                         }
                     }
                     _ => Err(RuntimeError::new(
@@ -294,7 +311,22 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
 
 impl Interpreter {
     pub fn new() -> Interpreter {
-        let env = Environment::new();
+        let mut env = Environment::new();
+        env.define(
+            "clock".to_string(),
+            Value::NativeFunction(NativeFunction {
+                call: |_: &Vec<Value>| -> Value {
+                    Value::Number(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as f64,
+                    )
+                },
+                arity: 0,
+            }),
+        )
+        .expect("Failed to define native functions");
         Interpreter {
             globals: env.clone(),
             environment: env,
@@ -339,6 +371,7 @@ fn is_truthy(x: &Value) -> bool {
         Value::Number(_) => true,
         Value::String(_) => true,
         Value::Callable(_, _) => true,
+        Value::NativeFunction(_) => true,
     }
 }
 
@@ -375,14 +408,13 @@ mod interpreter_tests {
     fn expect_number(source: &str, expected_value: f64) {
         let (tokens, success) = scanner::scan_tokens(source);
         assert!(success);
-        let result = parser::parse(&tokens);
-        assert!(result.is_ok(), "{}", result.err().unwrap());
-        let mut ast = result.unwrap();
+        let (mut statements, last_error) = parser::parse(&tokens);
+        assert!(last_error.is_none());
         let mut resolver = resolver::Resolver::new();
-        let result = resolver.resolve(&mut ast);
+        let result = resolver.resolve(&mut statements);
         assert!(result.is_ok(), "{}", result.err().unwrap());
         let mut interpreter = interpreter::Interpreter::new();
-        let val = interpreter.interpret(&mut ast);
+        let val = interpreter.interpret(&mut statements);
         assert!(val.is_ok(), "{}", val.err().unwrap());
         let val = val.unwrap();
         match val {
