@@ -15,9 +15,13 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "[line {}] Error at '{}': {}",
+            "[line {}] Error at {}: {}",
             self.cur.line,
-            self.cur.lexeme,
+            match self.cur.tokentype {
+                TokenType::EOF => "end".to_string(),
+                _ => format!("'{}'", self.cur.lexeme),
+            }
+            .as_str(),
             self.message.as_str(),
         )
     }
@@ -103,12 +107,27 @@ impl<'a> Parser<'a> {
                 self.advance();
                 self.var_declaration()
             }
+            TokenType::Class => {
+                self.advance();
+                self.class_declaration()
+            }
             _ => self.statement(),
         }
         .or_else(|err| {
             self.synchronize();
             Err(err)
         })
+    }
+    fn class_declaration(&mut self) -> Result<Statement, ParseError> {
+        let name = consume!(self, TokenType::Identifier, "Expect class name.").clone();
+        consume!(self, TokenType::LeftBrace, "Expect '{' before class body.");
+        let mut methods: Vec<Statement> = Vec::new();
+        while !check!(self, TokenType::RightBrace) && !self.is_at_end() {
+            methods.push(self.function("method")?);
+        }
+
+        consume!(self, TokenType::RightBrace, "Expect '}' after class body.");
+        Ok(Statement::Class { name, methods })
     }
     fn var_declaration(&mut self) -> Result<Statement, ParseError> {
         let name = consume!(self, TokenType::Identifier, "Expect variable name.").clone();
@@ -342,6 +361,11 @@ impl<'a> Parser<'a> {
                         value: Box::new(value),
                         scope: None,
                     }),
+                    Expression::Get { object, name } => Ok(Expression::Set {
+                        object,
+                        name,
+                        value: Box::new(value),
+                    }),
                     _ => err,
                 }
             }
@@ -450,6 +474,18 @@ impl<'a> Parser<'a> {
                     self.advance();
                     expr = self.finish_call(expr)?;
                 }
+                TokenType::Dot => {
+                    self.advance();
+                    let name = consume!(
+                        self,
+                        TokenType::Identifier,
+                        "Expect property name after '.'."
+                    );
+                    expr = Expression::Get {
+                        object: Box::new(expr),
+                        name: name.clone(),
+                    }
+                }
                 _ => break,
             }
         }
@@ -494,6 +530,10 @@ impl<'a> Parser<'a> {
                 consume!(self, TokenType::RightParen, "Expect ')' after expression.");
                 Ok(Expression::Grouping(Box::new(expr)))
             }
+            TokenType::This => Ok(Expression::This {
+                token: self.advance().clone(),
+                scope: None,
+            }),
             _ => Err(self.error("Expect expression.")),
         }
     }

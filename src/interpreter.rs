@@ -1,7 +1,10 @@
 use crate::ast::{Expression, Statement, Value, Visitor};
-use crate::callable::NativeFunction;
+use crate::callable::{Callable, NativeFunction};
+use crate::class::Class;
 use crate::environment::{Environment, EnvironmentError};
+use crate::instance::Instance;
 use crate::token::{Token, TokenType};
+use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -249,12 +252,62 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                             Ok((function.call)(&evaluated_arguments))
                         }
                     }
+                    Value::Class(class) => {
+                        if evaluated_arguments.len() != 0 {
+                            Err(RuntimeError::new(
+                                format!(
+                                    "Expected {} arguments but got {}.",
+                                    0,
+                                    evaluated_arguments.len()
+                                )
+                                .as_str(),
+                                Some(paren.clone()),
+                            ))
+                        } else {
+                            let instance = Instance::new(class.clone());
+                            class.find_method("init").map(|x| {
+                                let mut env = class.environment().new_child();
+                                env.define("this".to_string(), Value::Instance(instance.clone()))
+                                    .unwrap();
+                                x.call(self, &vec![], env);
+                            });
+                            Ok(Value::Instance(instance))
+                        }
+                    }
                     _ => Err(RuntimeError::new(
                         "Can only call functions and classes.",
                         Some(paren.clone()),
                     )),
                 }
             }
+            Expression::Get { object, name } => {
+                let object = self.evaluate(object)?;
+                match object {
+                    Value::Instance(instance) => instance.get(name),
+                    _ => Err(RuntimeError::new(
+                        "Only instances have properties.",
+                        Some(name.clone()),
+                    )),
+                }
+            }
+            Expression::Set {
+                object,
+                name,
+                value,
+            } => {
+                let mut obj = self.evaluate(object)?;
+                if let Value::Instance(x) = &mut obj {
+                    let value = self.evaluate(value)?;
+                    x.set(name.clone(), value.clone());
+                    Ok(value)
+                } else {
+                    Err(RuntimeError::new(
+                        "Only instances have fields.",
+                        Some(name.clone()),
+                    ))
+                }
+            }
+            Expression::This { token, scope } => self.environment.get_at(token, scope.unwrap()),
         }
     }
 }
@@ -304,6 +357,23 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
             Statement::Return { keyword: _, value } => {
                 let val = self.evaluate(value)?;
                 Err(ErrorType::Return(Return(val.clone())))
+            }
+            Statement::Class {
+                name,
+                methods: method_statements,
+            } => {
+                self.environment.define(name.lexeme.clone(), Value::Nil)?;
+                let mut methods: BTreeMap<String, Callable> = BTreeMap::new();
+                for method in method_statements {
+                    if let Statement::Function(x) = method {
+                        methods.insert(x.name().lexeme.clone(), x.clone());
+                    }
+                }
+                self.environment.assign_direct(
+                    name.clone(),
+                    Value::Class(Class::new(name.clone(), methods, self.environment.clone())),
+                )?;
+                Ok(Value::Nil)
             }
         }
     }
@@ -368,10 +438,7 @@ fn is_truthy(x: &Value) -> bool {
     match x {
         Value::Nil => false,
         Value::Boolean(x) => *x,
-        Value::Number(_) => true,
-        Value::String(_) => true,
-        Value::Callable(_, _) => true,
-        Value::NativeFunction(_) => true,
+        _ => true,
     }
 }
 
@@ -391,6 +458,10 @@ fn is_equal(lv: &Value, rv: &Value) -> bool {
         },
         Value::String(l) => match rv {
             Value::String(r) => l == r,
+            _ => false,
+        },
+        Value::Class(l) => match rv {
+            Value::Class(r) => l.equals(r),
             _ => false,
         },
         _ => false,

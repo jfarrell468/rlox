@@ -1,5 +1,7 @@
 use crate::callable::{Callable, NativeFunction};
+use crate::class::Class;
 use crate::environment::Environment;
+use crate::instance::Instance;
 use crate::token::{Token, TokenType};
 use std::fmt;
 use std::fmt::Formatter;
@@ -12,6 +14,8 @@ pub enum Value {
     String(String),
     Callable(Callable, Environment),
     NativeFunction(NativeFunction),
+    Class(Class),
+    Instance(Instance),
 }
 
 impl fmt::Display for Value {
@@ -29,6 +33,8 @@ impl fmt::Display for Value {
             Value::String(x) => write!(f, "{}", x),
             Value::Callable(x, _) => write!(f, "{}", x),
             Value::NativeFunction(x) => write!(f, "{}", x),
+            Value::Class(x) => write!(f, "{}", x),
+            Value::Instance(x) => write!(f, "{}", x),
         }
     }
 }
@@ -64,6 +70,19 @@ pub enum Expression {
         callee: Box<Expression>,
         paren: Token,
         arguments: Vec<Expression>,
+    },
+    Get {
+        object: Box<Expression>,
+        name: Token,
+    },
+    Set {
+        object: Box<Expression>,
+        name: Token,
+        value: Box<Expression>,
+    },
+    This {
+        token: Token,
+        scope: Option<usize>,
     },
 }
 
@@ -106,6 +125,10 @@ pub enum Statement {
     Return {
         keyword: Token,
         value: Expression,
+    },
+    Class {
+        name: Token,
+        methods: Vec<Statement>,
     },
 }
 
@@ -173,6 +196,13 @@ impl Visitor<Expression, String> for AstPrinter {
                 let baz = self.parenthesize("call", vec![callee]);
                 self.parenthesize(baz.as_str(), foo)
             }
+            Expression::Get { object: _, name: _ } => String::from("(get)"),
+            Expression::Set {
+                object: _,
+                name: _,
+                value: _,
+            } => String::from("(set)"),
+            Expression::This { token: _, scope: _ } => String::from("this"),
         }
     }
 }

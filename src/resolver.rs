@@ -33,11 +33,19 @@ impl<'a> Error for ResolverError {
 enum FunctionType {
     None,
     Function,
+    Method,
+}
+
+#[derive(Clone, Debug)]
+enum ClassType {
+    None,
+    Class,
 }
 
 pub struct Resolver {
     scopes: Vec<BTreeMap<String, bool>>,
     current_function: FunctionType,
+    current_class: ClassType,
 }
 
 impl MutatingVisitor<Expression, Result<(), ResolverError>> for Resolver {
@@ -93,6 +101,26 @@ impl MutatingVisitor<Expression, Result<(), ResolverError>> for Resolver {
                 }
                 Ok(())
             }
+            Expression::Get { object, name: _ } => {
+                self.resolve_expr(object)?;
+                Ok(())
+            }
+            Expression::Set {
+                object,
+                name: _,
+                value,
+            } => {
+                self.resolve_expr(value)?;
+                self.resolve_expr(object)?;
+                Ok(())
+            }
+            Expression::This { token, scope: _ } => match self.current_class {
+                ClassType::None => Err(ResolverError {
+                    message: "Cannot use 'this' outside of a class.".to_string(),
+                    token: Some(token.clone()),
+                }),
+                ClassType::Class => self.resolve_local(expr),
+            },
         }
     }
 }
@@ -145,6 +173,23 @@ impl MutatingVisitor<Statement, Result<(), ResolverError>> for Resolver {
                     self.resolve_expr(value)
                 }
             }
+            Statement::Class { name, methods } => {
+                let enclosing_class = self.current_class.clone();
+                self.current_class = ClassType::Class;
+                self.declare(name)?;
+                self.define(name);
+                self.begin_scope();
+                self.scopes
+                    .last_mut()
+                    .unwrap()
+                    .insert("this".to_string(), true);
+                for method in methods {
+                    self.resolve_function(method, FunctionType::Method)?;
+                }
+                self.end_scope();
+                self.current_class = enclosing_class;
+                Ok(())
+            }
         }
     }
 }
@@ -154,6 +199,7 @@ impl Resolver {
         Resolver {
             scopes: Vec::new(),
             current_function: FunctionType::None,
+            current_class: ClassType::None,
         }
     }
     fn resolve_expr(&mut self, expr: &mut Expression) -> Result<(), ResolverError> {
@@ -198,10 +244,12 @@ impl Resolver {
                 value: _,
                 scope: _,
             } => name,
+            Expression::This { token, scope: _ } => token,
             _ => {
                 return Err(ResolverError {
-                    message: "Can only resolve an expression of type 'variable' or 'assign'."
-                        .to_string(),
+                    message:
+                        "Can only resolve an expression of type 'variable', 'assign', or 'this'."
+                            .to_string(),
                     token: None,
                 });
             }
@@ -219,6 +267,10 @@ impl Resolver {
                         value: _,
                         scope,
                     } => {
+                        *scope = Some(self.scopes.len() - 1 - i);
+                        return Ok(());
+                    }
+                    Expression::This { token: _, scope } => {
                         *scope = Some(self.scopes.len() - 1 - i);
                         return Ok(());
                     }
