@@ -8,35 +8,35 @@ use std::fmt::Debug;
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
-pub struct Callable {
-    data: Rc<RefCell<CallableImpl>>,
+pub struct LoxFunction<'a> {
+    data: Rc<RefCell<LoxFunctionImpl<'a>>>,
 }
 
 #[derive(Debug)]
-struct CallableImpl {
-    name: Token,
-    params: Vec<Token>,
-    body: Vec<Statement>,
+struct LoxFunctionImpl<'a> {
+    name: &'a Token,
+    params: Vec<&'a Token>,
+    body: Vec<Statement<'a>>,
 }
 
-impl fmt::Display for Callable {
+impl<'a> fmt::Display for LoxFunction<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<fn {}>", self.name().lexeme)
     }
 }
 
-impl Callable {
-    pub fn new(name: Token, params: Vec<Token>, body: Vec<Statement>) -> Callable {
-        Callable {
-            data: Rc::new(RefCell::new(CallableImpl { name, params, body })),
+impl<'a> LoxFunction<'a> {
+    pub fn new(name: &'a Token, params: Vec<&'a Token>, body: Vec<Statement<'a>>) -> LoxFunction<'a> {
+        LoxFunction {
+            data: Rc::new(RefCell::new(LoxFunctionImpl { name, params, body })),
         }
     }
     pub fn call(
         &self,
-        interpreter: &mut Interpreter,
-        arguments: &Vec<Value>,
-        closure: Environment,
-    ) -> Result<Value, ErrorType> {
+        interpreter: &mut Interpreter<'a>,
+        arguments: &Vec<Value<'a>>,
+        closure: Environment<'a>,
+    ) -> Result<Value<'a>, ErrorType<'a>> {
         let mut environment = closure.new_child();
 
         for param_and_val in self.params().iter().zip(arguments.iter()) {
@@ -54,33 +54,33 @@ impl Callable {
     pub fn arity(&self) -> usize {
         self.data.borrow().params.len()
     }
-    pub fn name(&self) -> Ref<Token> {
+    pub fn name(&self) -> Ref<&'a Token> {
         Ref::map(self.data.borrow(), |data| &data.name)
     }
-    pub fn params(&self) -> Ref<Vec<Token>> {
+    pub fn params(&self) -> Ref<Vec<&'a Token>> {
         Ref::map(self.data.borrow(), |data| &data.params)
     }
-    pub fn body(&self) -> Ref<Vec<Statement>> {
+    pub fn body(&self) -> Ref<Vec<Statement<'a>>> {
         Ref::map(self.data.borrow(), |data| &data.body)
     }
-    pub fn body_mut(&mut self) -> RefMut<Vec<Statement>> {
+    pub fn body_mut(&mut self) -> RefMut<Vec<Statement<'a>>> {
         RefMut::map(self.data.borrow_mut(), |data| &mut data.body)
     }
 }
 
 #[derive(Clone)]
-pub struct NativeFunction {
-    pub call: fn(&Vec<Value>) -> Value,
+pub struct NativeFunction<'a> {
+    pub call: fn(&Vec<Value<'a>>) -> Value<'a>,
     pub arity: usize,
 }
 
-impl Debug for NativeFunction {
+impl<'a> Debug for NativeFunction<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<native fn>")
     }
 }
 
-impl fmt::Display for NativeFunction {
+impl<'a> fmt::Display for NativeFunction<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<native fn>")
     }

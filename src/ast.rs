@@ -1,4 +1,4 @@
-use crate::callable::{Callable, NativeFunction};
+use crate::callable::{NativeFunction, LoxFunction};
 use crate::class::Class;
 use crate::environment::Environment;
 use crate::instance::Instance;
@@ -7,18 +7,18 @@ use std::fmt;
 use std::fmt::Formatter;
 
 #[derive(Clone, Debug)]
-pub enum Value {
+pub enum Value<'a> {
     Nil,
     Boolean(bool),
     Number(f64),
     String(String),
-    Callable(Callable, Environment),
-    NativeFunction(NativeFunction),
-    Class(Class),
-    Instance(Instance),
+    Function(LoxFunction<'a>, Environment<'a>),
+    NativeFunction(NativeFunction<'a>),
+    Class(Class<'a>),
+    Instance(Instance<'a>),
 }
 
-impl fmt::Display for Value {
+impl<'a> fmt::Display for Value<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Value::Nil => write!(f, "nil"),
@@ -31,7 +31,7 @@ impl fmt::Display for Value {
                 }
             }
             Value::String(x) => write!(f, "{}", x),
-            Value::Callable(x, _) => write!(f, "{}", x),
+            Value::Function(x, _) => write!(f, "{}", x),
             Value::NativeFunction(x) => write!(f, "{}", x),
             Value::Class(x) => write!(f, "{}", x),
             Value::Instance(x) => write!(f, "{}", x),
@@ -40,48 +40,48 @@ impl fmt::Display for Value {
 }
 
 #[derive(Debug)]
-pub enum Expression {
+pub enum Expression<'a> {
     Binary {
-        left: Box<Expression>,
-        operator: Token,
-        right: Box<Expression>,
+        left: Box<Expression<'a>>,
+        operator: &'a Token,
+        right: Box<Expression<'a>>,
     },
-    Grouping(Box<Expression>),
-    Literal(Token),
+    Grouping(Box<Expression<'a>>),
+    Literal(&'a Token),
     Logical {
-        left: Box<Expression>,
-        operator: Token,
-        right: Box<Expression>,
+        left: Box<Expression<'a>>,
+        operator: &'a Token,
+        right: Box<Expression<'a>>,
     },
     Unary {
-        operator: Token,
-        right: Box<Expression>,
+        operator: &'a Token,
+        right: Box<Expression<'a>>,
     },
     Variable {
-        name: Token,
+        name: &'a Token,
         scope: Option<usize>,
     },
     Assign {
-        name: Token,
-        value: Box<Expression>,
+        name: &'a Token,
+        value: Box<Expression<'a>>,
         scope: Option<usize>,
     },
     Call {
-        callee: Box<Expression>,
-        paren: Token,
-        arguments: Vec<Expression>,
+        callee: Box<Expression<'a>>,
+        paren: &'a Token,
+        arguments: Vec<Expression<'a>>,
     },
     Get {
-        object: Box<Expression>,
-        name: Token,
+        object: Box<Expression<'a>>,
+        name: &'a Token,
     },
     Set {
-        object: Box<Expression>,
-        name: Token,
-        value: Box<Expression>,
+        object: Box<Expression<'a>>,
+        name: &'a Token,
+        value: Box<Expression<'a>>,
     },
     This {
-        token: Token,
+        token: &'a Token,
         scope: Option<usize>,
     },
 }
@@ -94,49 +94,49 @@ pub trait MutatingVisitor<T, Output> {
     fn visit(&mut self, n: &mut T) -> Output;
 }
 
-impl Expression {
-    pub fn accept<T>(&self, v: &mut Visitor<Expression, T>) -> T {
+impl<'a> Expression<'a> {
+    pub fn accept<T>(&self, v: &mut Visitor<Expression<'a>, T>) -> T {
         v.visit(self)
     }
-    pub fn accept_mut<T>(&mut self, v: &mut MutatingVisitor<Expression, T>) -> T {
+    pub fn accept_mut<T>(&mut self, v: &mut MutatingVisitor<Expression<'a>, T>) -> T {
         v.visit(self)
     }
 }
 
 #[derive(Debug)]
-pub enum Statement {
-    Print(Expression),
-    Expression(Expression),
+pub enum Statement<'a> {
+    Print(Expression<'a>),
+    Expression(Expression<'a>),
     Var {
-        name: Token,
-        initializer: Expression,
+        name: &'a Token,
+        initializer: Option<Expression<'a>>,
     },
-    Block(Vec<Statement>),
+    Block(Vec<Statement<'a>>),
     If {
-        condition: Expression,
-        then_branch: Box<Statement>,
-        else_branch: Option<Box<Statement>>,
+        condition: Expression<'a>,
+        then_branch: Box<Statement<'a>>,
+        else_branch: Option<Box<Statement<'a>>>,
     },
     While {
-        condition: Expression,
-        body: Box<Statement>,
+        condition: Option<Expression<'a>>,
+        body: Box<Statement<'a>>,
     },
-    Function(Callable),
+    Function(LoxFunction<'a>),
     Return {
-        keyword: Token,
-        value: Expression,
+        keyword: &'a Token,
+        value: Option<Expression<'a>>,
     },
     Class {
-        name: Token,
-        methods: Vec<Statement>,
+        name: &'a Token,
+        methods: Vec<Statement<'a>>,
     },
 }
 
-impl Statement {
-    pub fn accept<T>(&self, v: &mut Visitor<Statement, T>) -> T {
+impl<'a> Statement<'a> {
+    pub fn accept<T>(&self, v: &mut Visitor<Statement<'a>, T>) -> T {
         v.visit(self)
     }
-    pub fn accept_mut<T>(&mut self, v: &mut MutatingVisitor<Statement, T>) -> T {
+    pub fn accept_mut<T>(&mut self, v: &mut MutatingVisitor<Statement<'a>, T>) -> T {
         v.visit(self)
     }
 }
@@ -156,7 +156,7 @@ impl AstPrinter {
     }
 }
 
-impl Visitor<Expression, String> for AstPrinter {
+impl<'a> Visitor<Expression<'a>, String> for AstPrinter {
     fn visit(&mut self, n: &Expression) -> String {
         match n {
             Expression::Binary {
@@ -214,29 +214,33 @@ mod ast_tests {
 
     #[test]
     fn basic_ast_test() {
+        let minus = Token {
+            tokentype: TokenType::Minus,
+            lexeme: String::from("-"),
+            line: 1,
+        };
+        let star = Token {
+            tokentype: TokenType::Star,
+            lexeme: String::from("*"),
+            line: 1,
+        };
+        let number = Token {
+            tokentype: TokenType::Number(123.0),
+            lexeme: String::from("123.0"),
+            line: 1,
+        };
+        let number2 = Token {
+            tokentype: TokenType::Number(45.67),
+            lexeme: String::from("45.67"),
+            line: 1,
+        };
         let expression = Expression::Binary {
             left: Box::new(Expression::Unary {
-                operator: Token {
-                    tokentype: TokenType::Minus,
-                    lexeme: String::from("-"),
-                    line: 1,
-                },
-                right: Box::new(Expression::Literal(Token {
-                    tokentype: TokenType::Number(123.0),
-                    lexeme: String::from("123.0"),
-                    line: 1,
-                })),
+                operator: &minus,
+                right: Box::new(Expression::Literal(&number)),
             }),
-            operator: Token {
-                tokentype: TokenType::Star,
-                lexeme: String::from("*"),
-                line: 1,
-            },
-            right: Box::new(Expression::Grouping(Box::new(Expression::Literal(Token {
-                tokentype: TokenType::Number(45.67),
-                lexeme: String::from("45.67"),
-                line: 1,
-            })))),
+            operator: &star,
+            right: Box::new(Expression::Grouping(Box::new(Expression::Literal(&number2)))),
         };
         let mut visitor = AstPrinter {};
         assert_eq!(expression.accept(&mut visitor), "(* (- 123) (group 45.67))");

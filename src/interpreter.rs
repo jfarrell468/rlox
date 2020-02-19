@@ -1,5 +1,5 @@
 use crate::ast::{Expression, Statement, Value, Visitor};
-use crate::callable::{Callable, NativeFunction};
+use crate::callable::{NativeFunction, LoxFunction};
 use crate::class::Class;
 use crate::environment::{Environment, EnvironmentError};
 use crate::instance::Instance;
@@ -9,17 +9,17 @@ use std::error::Error;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub struct Interpreter {
-    globals: Environment,
-    environment: Environment,
+pub struct Interpreter<'a> {
+    globals: Environment<'a>,
+    environment: Environment<'a>,
 }
 
 #[derive(Debug)]
-pub struct RuntimeError {
+pub struct RuntimeError<'a> {
     message: String,
-    token: Option<Token>,
+    token: Option<&'a Token>,
 }
-impl fmt::Display for RuntimeError {
+impl<'a> fmt::Display for RuntimeError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.token {
             None => write!(f, "{}", self.message),
@@ -27,13 +27,13 @@ impl fmt::Display for RuntimeError {
         }
     }
 }
-impl Error for RuntimeError {
+impl<'a> Error for RuntimeError<'a> {
     fn description(&self) -> &str {
         &self.message
     }
 }
-impl RuntimeError {
-    pub fn new(msg: &str, token: Option<Token>) -> ErrorType {
+impl<'a> RuntimeError<'a> {
+    pub fn new(msg: &str, token: Option<&'a Token>) -> ErrorType<'a> {
         ErrorType::RuntimeError(RuntimeError {
             message: msg.to_string(),
             token,
@@ -42,25 +42,25 @@ impl RuntimeError {
 }
 
 #[derive(Debug)]
-pub struct Return(pub Value);
-impl fmt::Display for Return {
+pub struct Return<'a>(pub Value<'a>);
+impl<'a> fmt::Display for Return<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
 }
-impl Error for Return {
+impl<'a> Error for Return<'a> {
     fn description(&self) -> &str {
         ""
     }
 }
 
 #[derive(Debug)]
-pub enum ErrorType {
-    Return(Return),
-    EnvironmentError(EnvironmentError),
-    RuntimeError(RuntimeError),
+pub enum ErrorType<'a> {
+    Return(Return<'a>),
+    EnvironmentError(EnvironmentError<'a>),
+    RuntimeError(RuntimeError<'a>),
 }
-impl fmt::Display for ErrorType {
+impl<'a> fmt::Display for ErrorType<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ErrorType::Return(x) => x.fmt(f),
@@ -69,7 +69,7 @@ impl fmt::Display for ErrorType {
         }
     }
 }
-impl Error for ErrorType {
+impl<'a> Error for ErrorType<'a> {
     fn description(&self) -> &str {
         match self {
             ErrorType::Return(x) => x.description(),
@@ -79,8 +79,8 @@ impl Error for ErrorType {
     }
 }
 
-impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
-    fn visit(&mut self, expr: &Expression) -> Result<Value, ErrorType> {
+impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpreter<'a> {
+    fn visit(&mut self, expr: &Expression<'a>) -> Result<Value<'a>, ErrorType<'a>> {
         match expr {
             Expression::Literal(x) => Ok(match &x.tokentype {
                 TokenType::String(y) => Value::String(y.clone()),
@@ -97,13 +97,13 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                         Value::Number(r) => Ok(Value::Number(-r)),
                         _ => Err(RuntimeError::new(
                             "Operand must be a number.",
-                            Some(operator.clone()),
+                            Some(operator),
                         )),
                     },
                     TokenType::Bang => Ok(Value::Boolean(!is_truthy(&rv))),
                     _ => Err(RuntimeError::new(
                         "Invalid unary operand",
-                        Some(operator.clone()),
+                        Some(operator),
                     )),
                 }
             }
@@ -122,7 +122,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                             Value::Number(r) => Ok(Value::Number(l + r)),
                             _ => Err(RuntimeError::new(
                                 "Operands must be two numbers or two strings.",
-                                Some(operator.clone()),
+                                Some(operator),
                             )),
                         },
                         Value::String(l) => match &rv {
@@ -133,12 +133,12 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                             }
                             _ => Err(RuntimeError::new(
                                 "Operands must be two numbers or two strings.",
-                                Some(operator.clone()),
+                                Some(operator),
                             )),
                         },
                         _ => Err(RuntimeError::new(
                             "Operands must be two numbers or two strings.",
-                            Some(operator.clone()),
+                            Some(operator),
                         )),
                     },
                     _ => match &lv {
@@ -154,17 +154,17 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                                 TokenType::LessEqual => Ok(Value::Boolean(l <= r)),
                                 _ => Err(RuntimeError::new(
                                     "Invalid numerical operand",
-                                    Some(operator.clone()),
+                                    Some(operator),
                                 )),
                             },
                             _ => Err(RuntimeError::new(
                                 "Operands must be numbers.",
-                                Some(operator.clone()),
+                                Some(operator),
                             )),
                         },
                         _ => Err(RuntimeError::new(
                             "Operands must be numbers.",
-                            Some(operator.clone()),
+                            Some(operator),
                         )),
                     },
                 }
@@ -176,10 +176,10 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
             Expression::Assign { name, value, scope } => {
                 let value = self.evaluate(value)?;
                 match scope {
-                    None => self.globals.assign_direct(name.clone(), value.clone())?,
+                    None => self.globals.assign_direct(name, value.clone())?,
                     Some(distance) => {
                         self.environment
-                            .assign_at(name.clone(), value.clone(), *distance)?
+                            .assign_at(name, value.clone(), *distance)?
                     }
                 }
                 Ok(value)
@@ -207,7 +207,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                     }
                     _ => Err(RuntimeError::new(
                         "Invalid logical operand",
-                        Some(operator.clone()),
+                        Some(operator),
                     )),
                 }
             }
@@ -222,7 +222,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                     evaluated_arguments.push(self.evaluate(argument)?);
                 }
                 match evaluated_callee {
-                    Value::Callable(function, closure) => {
+                    Value::Function(function, closure) => {
                         if function.arity() != evaluated_arguments.len() {
                             Err(RuntimeError::new(
                                 format!(
@@ -231,7 +231,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                                     evaluated_arguments.len()
                                 )
                                 .as_str(),
-                                Some(paren.clone()),
+                                Some(paren),
                             ))
                         } else {
                             function.call(self, &evaluated_arguments, closure)
@@ -246,7 +246,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                                     evaluated_arguments.len()
                                 )
                                 .as_str(),
-                                Some(paren.clone()),
+                                Some(paren),
                             ))
                         } else {
                             Ok((function.call)(&evaluated_arguments))
@@ -261,7 +261,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                                     evaluated_arguments.len()
                                 )
                                 .as_str(),
-                                Some(paren.clone()),
+                                Some(paren),
                             ))
                         } else {
                             let instance = Instance::new(class.clone());
@@ -269,14 +269,14 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                                 let mut env = class.environment().new_child();
                                 env.define("this".to_string(), Value::Instance(instance.clone()))
                                     .unwrap();
-                                x.call(self, &vec![], env);
+                                x.call(self, &vec![], env).unwrap();
                             });
                             Ok(Value::Instance(instance))
                         }
                     }
                     _ => Err(RuntimeError::new(
                         "Can only call functions and classes.",
-                        Some(paren.clone()),
+                        Some(paren),
                     )),
                 }
             }
@@ -286,7 +286,7 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                     Value::Instance(instance) => instance.get(name),
                     _ => Err(RuntimeError::new(
                         "Only instances have properties.",
-                        Some(name.clone()),
+                        Some(name),
                     )),
                 }
             }
@@ -298,12 +298,12 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
                 let mut obj = self.evaluate(object)?;
                 if let Value::Instance(x) = &mut obj {
                     let value = self.evaluate(value)?;
-                    x.set(name.clone(), value.clone());
+                    x.set(name, value.clone());
                     Ok(value)
                 } else {
                     Err(RuntimeError::new(
                         "Only instances have fields.",
-                        Some(name.clone()),
+                        Some(name),
                     ))
                 }
             }
@@ -312,8 +312,8 @@ impl Visitor<Expression, Result<Value, ErrorType>> for Interpreter {
     }
 }
 
-impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
-    fn visit(&mut self, stmt: &Statement) -> Result<Value, ErrorType> {
+impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpreter<'a> {
+    fn visit(&mut self, stmt: &Statement<'a>) -> Result<Value<'a>, ErrorType<'a>> {
         match stmt {
             Statement::Print(e) => {
                 let val = self.evaluate(e)?;
@@ -322,7 +322,10 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
             }
             Statement::Expression(e) => self.evaluate(e),
             Statement::Var { name, initializer } => {
-                let val = self.evaluate(initializer)?;
+                let val = match initializer {
+                    None => Value::Nil,
+                    Some(x) => self.evaluate(x)?,
+                };
                 self.environment.define(name.lexeme.clone(), val.clone())?;
                 Ok(val)
             }
@@ -342,20 +345,28 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
             }
             Statement::While { condition, body } => {
                 let mut val = Value::Nil;
-                while is_truthy(&self.evaluate(condition)?) {
+                loop {
+                    if let Some(x) = condition {
+                        if !is_truthy(&self.evaluate(x)?) {
+                            break;
+                        }
+                    }
                     val = self.execute(body)?.clone();
                 }
                 Ok(val)
             }
-            Statement::Function(callable) => {
+            Statement::Function(function) => {
                 self.environment.define(
-                    callable.name().lexeme.clone(),
-                    Value::Callable(callable.clone(), self.environment.clone()),
+                    function.name().lexeme.clone(),
+                    Value::Function(function.clone(), self.environment.clone()),
                 )?;
                 Ok(Value::Nil)
             }
             Statement::Return { keyword: _, value } => {
-                let val = self.evaluate(value)?;
+                let val = match value {
+                    None => Value::Nil,
+                    Some(x) => self.evaluate(x)?,
+                };
                 Err(ErrorType::Return(Return(val.clone())))
             }
             Statement::Class {
@@ -363,15 +374,15 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
                 methods: method_statements,
             } => {
                 self.environment.define(name.lexeme.clone(), Value::Nil)?;
-                let mut methods: BTreeMap<String, Callable> = BTreeMap::new();
+                let mut methods: BTreeMap<String, LoxFunction> = BTreeMap::new();
                 for method in method_statements {
                     if let Statement::Function(x) = method {
                         methods.insert(x.name().lexeme.clone(), x.clone());
                     }
                 }
                 self.environment.assign_direct(
-                    name.clone(),
-                    Value::Class(Class::new(name.clone(), methods, self.environment.clone())),
+                    name,
+                    Value::Class(Class::new(name, methods, self.environment.clone())),
                 )?;
                 Ok(Value::Nil)
             }
@@ -379,8 +390,8 @@ impl Visitor<Statement, Result<Value, ErrorType>> for Interpreter {
     }
 }
 
-impl Interpreter {
-    pub fn new() -> Interpreter {
+impl<'a> Interpreter<'a> {
+    pub fn new() -> Interpreter<'a> {
         let mut env = Environment::new();
         env.define(
             "clock".to_string(),
@@ -402,13 +413,13 @@ impl Interpreter {
             environment: env,
         }
     }
-    fn evaluate(&mut self, expr: &Expression) -> Result<Value, ErrorType> {
+    fn evaluate(&mut self, expr: &Expression<'a>) -> Result<Value<'a>, ErrorType<'a>> {
         expr.accept(self)
     }
-    fn execute(&mut self, stmt: &Statement) -> Result<Value, ErrorType> {
+    fn execute(&mut self, stmt: &Statement<'a>) -> Result<Value<'a>, ErrorType<'a>> {
         stmt.accept(self)
     }
-    pub fn interpret(&mut self, statements: &Vec<Statement>) -> Result<Value, ErrorType> {
+    pub fn interpret(&mut self, statements: &Vec<Statement<'a>>) -> Result<Value<'a>, ErrorType<'a>> {
         let mut val = Value::Nil;
         for stmt in statements {
             val = self.execute(stmt)?;
@@ -417,9 +428,9 @@ impl Interpreter {
     }
     pub fn execute_block(
         &mut self,
-        stmts: &Vec<Statement>,
-        env: Environment,
-    ) -> Result<Value, ErrorType> {
+        stmts: &Vec<Statement<'a>>,
+        env: Environment<'a>,
+    ) -> Result<Value<'a>, ErrorType<'a>> {
         let mut result = Ok(Value::Nil);
         let parent = self.environment.clone();
         self.environment = env;
@@ -442,7 +453,7 @@ fn is_truthy(x: &Value) -> bool {
     }
 }
 
-fn is_equal(lv: &Value, rv: &Value) -> bool {
+fn is_equal<'a>(lv: &Value<'a>, rv: &Value<'a>) -> bool {
     match lv {
         Value::Nil => match rv {
             Value::Nil => true,

@@ -7,12 +7,12 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Debug)]
-pub struct EnvironmentError {
+pub struct EnvironmentError<'a> {
     message: String,
-    token: Option<Token>,
+    token: Option<&'a Token>,
 }
 
-impl<'a> fmt::Display for EnvironmentError {
+impl<'a> fmt::Display for EnvironmentError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.token {
             None => write!(f, "Runtime error: {}", self.message),
@@ -21,31 +21,31 @@ impl<'a> fmt::Display for EnvironmentError {
     }
 }
 
-impl<'a> Error for EnvironmentError {
+impl<'a> Error for EnvironmentError<'a> {
     fn description(&self) -> &str {
         &self.message
     }
 }
 
-type EnvList = SharedList<BTreeMap<String, Value>>;
+type EnvList<'a> = SharedList<BTreeMap<String, Value<'a>>>;
 
 #[derive(Clone, Debug)]
-pub struct Environment {
-    values: EnvList,
+pub struct Environment<'a> {
+    values: EnvList<'a>,
 }
 
-impl Environment {
-    pub fn new() -> Environment {
+impl<'a> Environment<'a> {
+    pub fn new() -> Environment<'a> {
         let mut env_list: EnvList = SharedList::new();
         env_list.push(BTreeMap::new());
         Environment { values: env_list }
     }
-    pub fn new_child(&self) -> Environment {
+    pub fn new_child(&self) -> Environment<'a> {
         let mut env_list = self.values.clone();
         env_list.push(BTreeMap::new());
         Environment { values: env_list }
     }
-    pub fn define(&mut self, name: String, value: Value) -> Result<(), ErrorType> {
+    pub fn define(&mut self, name: String, value: Value<'a>) -> Result<(), ErrorType<'a>> {
         self.values.peek_mut().map_or(
             Err(Environment::error("Empty environment".to_string(), None)),
             |mut map| {
@@ -54,30 +54,30 @@ impl Environment {
             },
         )
     }
-    pub fn get_at(&self, token: &Token, distance: usize) -> Result<Value, ErrorType> {
+    pub fn get_at(&self, token: &'a Token, distance: usize) -> Result<Value<'a>, ErrorType<'a>> {
         self.ancestor(distance).get_direct(token)
     }
-    pub fn get_direct(&self, token: &Token) -> Result<Value, ErrorType> {
+    pub fn get_direct(&self, token: &'a Token) -> Result<Value<'a>, ErrorType<'a>> {
         self.values.peek().map_or(
             Err(Environment::error("Empty environment".to_string(), None)),
             |map| match (*map).get(&token.lexeme) {
                 Some(val) => Ok(val.clone()),
                 None => Err(Environment::error(
                     format!("Undefined variable '{}'.", token.lexeme),
-                    Some(token.clone()),
+                    Some(token),
                 )),
             },
         )
     }
     pub fn assign_at(
         &mut self,
-        token: Token,
-        value: Value,
+        token: &'a Token,
+        value: Value<'a>,
         distance: usize,
-    ) -> Result<(), ErrorType> {
+    ) -> Result<(), ErrorType<'a>> {
         self.ancestor(distance).assign_direct(token, value)
     }
-    pub fn assign_direct(&mut self, token: Token, value: Value) -> Result<(), ErrorType> {
+    pub fn assign_direct(&mut self, token: &'a Token, value: Value<'a>) -> Result<(), ErrorType<'a>> {
         self.values.peek_mut().map_or(
             Err(Environment::error("Empty environment".to_string(), None)),
             |mut map| match (*map).insert(token.lexeme.clone(), value) {
@@ -89,14 +89,14 @@ impl Environment {
             },
         )
     }
-    fn ancestor(&self, distance: usize) -> Environment {
+    fn ancestor(&self, distance: usize) -> Environment<'a> {
         let mut ancestor = self.values.clone();
         for _ in 0..distance {
             ancestor = ancestor.tail();
         }
         Environment { values: ancestor }
     }
-    fn error(msg: String, token: Option<Token>) -> ErrorType {
+    fn error(msg: String, token: Option<&Token>) -> ErrorType {
         ErrorType::EnvironmentError(EnvironmentError {
             message: msg,
             token: token,

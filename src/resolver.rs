@@ -5,12 +5,12 @@ use std::error::Error;
 use std::fmt;
 
 #[derive(Debug)]
-pub struct ResolverError {
+pub struct ResolverError<'a> {
     message: String,
-    token: Option<Token>,
+    token: Option<&'a Token>,
 }
 
-impl<'a> fmt::Display for ResolverError {
+impl<'a> fmt::Display for ResolverError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.token {
             None => write!(f, "Error: {}", self.message.as_str()),
@@ -23,7 +23,7 @@ impl<'a> fmt::Display for ResolverError {
     }
 }
 
-impl<'a> Error for ResolverError {
+impl<'a> Error for ResolverError<'a> {
     fn description(&self) -> &str {
         &self.message
     }
@@ -48,8 +48,8 @@ pub struct Resolver {
     current_class: ClassType,
 }
 
-impl MutatingVisitor<Expression, Result<(), ResolverError>> for Resolver {
-    fn visit(&mut self, expr: &mut Expression) -> Result<(), ResolverError> {
+impl<'a> MutatingVisitor<Expression<'a>, Result<(), ResolverError<'a>>> for Resolver {
+    fn visit(&mut self, expr: &mut Expression<'a>) -> Result<(), ResolverError<'a>> {
         match expr {
             Expression::Binary {
                 left,
@@ -76,7 +76,7 @@ impl MutatingVisitor<Expression, Result<(), ResolverError>> for Resolver {
                         return Err(ResolverError {
                             message: "Cannot read local variable in its own initializer."
                                 .to_string(),
-                            token: Some(name.clone()),
+                            token: Some(name),
                         });
                     }
                 }
@@ -117,7 +117,7 @@ impl MutatingVisitor<Expression, Result<(), ResolverError>> for Resolver {
             Expression::This { token, scope: _ } => match self.current_class {
                 ClassType::None => Err(ResolverError {
                     message: "Cannot use 'this' outside of a class.".to_string(),
-                    token: Some(token.clone()),
+                    token: Some(token),
                 }),
                 ClassType::Class => self.resolve_local(expr),
             },
@@ -125,14 +125,16 @@ impl MutatingVisitor<Expression, Result<(), ResolverError>> for Resolver {
     }
 }
 
-impl MutatingVisitor<Statement, Result<(), ResolverError>> for Resolver {
-    fn visit(&mut self, stmt: &mut Statement) -> Result<(), ResolverError> {
+impl<'a> MutatingVisitor<Statement<'a>, Result<(), ResolverError<'a>>> for Resolver {
+    fn visit(&mut self, stmt: &mut Statement<'a>) -> Result<(), ResolverError<'a>> {
         match stmt {
             Statement::Print(expr) => self.resolve_expr(expr),
             Statement::Expression(expr) => self.resolve_expr(expr),
             Statement::Var { name, initializer } => {
                 self.declare(name)?;
-                self.resolve_expr(initializer)?;
+                if let Some(x) = initializer {
+                    self.resolve_expr(x)?;
+                }
                 self.define(name);
                 Ok(())
             }
@@ -155,7 +157,9 @@ impl MutatingVisitor<Statement, Result<(), ResolverError>> for Resolver {
                 Ok(())
             }
             Statement::While { condition, body } => {
-                self.resolve_expr(condition)?;
+                if let Some(x) = condition {
+                    self.resolve_expr(x)?;
+                }
                 self.resolve_stmt(body)
             }
             Statement::Function(fun) => {
@@ -167,10 +171,13 @@ impl MutatingVisitor<Statement, Result<(), ResolverError>> for Resolver {
                 if let FunctionType::None = self.current_function {
                     Err(ResolverError {
                         message: "Cannot return from top-level code.".to_string(),
-                        token: Some(keyword.clone()),
+                        token: Some(keyword),
                     })
                 } else {
-                    self.resolve_expr(value)
+                    match value {
+                        None => Ok(()),
+                        Some(x) => self.resolve_expr(x),
+                    }
                 }
             }
             Statement::Class { name, methods } => {
@@ -194,7 +201,7 @@ impl MutatingVisitor<Statement, Result<(), ResolverError>> for Resolver {
     }
 }
 
-impl Resolver {
+impl<'a> Resolver {
     pub fn new() -> Resolver {
         Resolver {
             scopes: Vec::new(),
@@ -202,13 +209,13 @@ impl Resolver {
             current_class: ClassType::None,
         }
     }
-    fn resolve_expr(&mut self, expr: &mut Expression) -> Result<(), ResolverError> {
+    fn resolve_expr(&mut self, expr: &mut Expression<'a>) -> Result<(), ResolverError<'a>> {
         expr.accept_mut(self)
     }
-    fn resolve_stmt(&mut self, stmt: &mut Statement) -> Result<(), ResolverError> {
+    fn resolve_stmt(&mut self, stmt: &mut Statement<'a>) -> Result<(), ResolverError<'a>> {
         stmt.accept_mut(self)
     }
-    pub fn resolve(&mut self, statements: &mut Vec<Statement>) -> Result<(), ResolverError> {
+    pub fn resolve(&mut self, statements: &mut Vec<Statement<'a>>) -> Result<(), ResolverError<'a>> {
         for stmt in statements {
             self.resolve_stmt(stmt)?;
         }
@@ -220,24 +227,24 @@ impl Resolver {
     fn end_scope(&mut self) {
         self.scopes.pop();
     }
-    fn declare(&mut self, name: &Token) -> Result<(), ResolverError> {
+    fn declare(&mut self, name: &'a Token) -> Result<(), ResolverError<'a>> {
         self.scopes.last_mut().map_or(Ok(()), |scope| {
             match scope.insert(name.lexeme.clone(), false) {
                 None => Ok(()),
                 Some(_) => Err(ResolverError {
                     message: "Variable with this name already declared in this scope.".to_string(),
-                    token: Some(name.clone()),
+                    token: Some(name),
                 }),
             }
         })
     }
-    fn define(&mut self, name: &Token) {
+    fn define(&mut self, name: &'a Token) {
         if let Some(scope) = self.scopes.last_mut() {
             scope.insert(name.lexeme.clone(), true);
         }
     }
-    fn resolve_local(&mut self, expr: &mut Expression) -> Result<(), ResolverError> {
-        let token = match expr {
+    fn resolve_local(&mut self, expr: &mut Expression<'a>) -> Result<(), ResolverError<'a>> {
+        let token = match *expr {
             Expression::Variable { name, scope: _ } => name,
             Expression::Assign {
                 name,
@@ -253,8 +260,7 @@ impl Resolver {
                     token: None,
                 });
             }
-        }
-        .clone();
+        };
         for (i, cur_scope) in self.scopes.iter().enumerate().rev() {
             if cur_scope.contains_key(&token.lexeme) {
                 match expr {
@@ -289,9 +295,9 @@ impl Resolver {
     }
     fn resolve_function(
         &mut self,
-        stmt: &mut Statement,
+        stmt: &mut Statement<'a>,
         fn_type: FunctionType,
-    ) -> Result<(), ResolverError> {
+    ) -> Result<(), ResolverError<'a>> {
         match stmt {
             Statement::Function(x) => {
                 let enclosing_fn = self.current_function.clone();
