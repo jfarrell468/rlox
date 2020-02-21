@@ -1,5 +1,5 @@
 use crate::ast::{Expression, Statement, Value, Visitor};
-use crate::callable::{NativeFunction, LoxFunction};
+use crate::callable::{LoxFunction, NativeFunction};
 use crate::class::Class;
 use crate::environment::{Environment, EnvironmentError};
 use crate::instance::Instance;
@@ -101,10 +101,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                         )),
                     },
                     TokenType::Bang => Ok(Value::Boolean(!is_truthy(&rv))),
-                    _ => Err(RuntimeError::new(
-                        "Invalid unary operand",
-                        Some(operator),
-                    )),
+                    _ => Err(RuntimeError::new("Invalid unary operand", Some(operator))),
                 }
             }
             Expression::Binary {
@@ -177,10 +174,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                 let value = self.evaluate(value)?;
                 match scope {
                     None => self.globals.assign_direct(name, value.clone())?,
-                    Some(distance) => {
-                        self.environment
-                            .assign_at(name, value.clone(), *distance)?
-                    }
+                    Some(distance) => self.environment.assign_at(name, value.clone(), *distance)?,
                 }
                 Ok(value)
             }
@@ -205,10 +199,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                             self.evaluate(right)
                         }
                     }
-                    _ => Err(RuntimeError::new(
-                        "Invalid logical operand",
-                        Some(operator),
-                    )),
+                    _ => Err(RuntimeError::new("Invalid logical operand", Some(operator))),
                 }
             }
             Expression::Call {
@@ -222,7 +213,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                     evaluated_arguments.push(self.evaluate(argument)?);
                 }
                 match evaluated_callee {
-                    Value::Function(function, closure) => {
+                    Value::Function(function, closure, is_init) => {
                         if function.arity() != evaluated_arguments.len() {
                             Err(RuntimeError::new(
                                 format!(
@@ -234,7 +225,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                                 Some(paren),
                             ))
                         } else {
-                            function.call(self, &evaluated_arguments, closure)
+                            function.call(self, &evaluated_arguments, closure, is_init)
                         }
                     }
                     Value::NativeFunction(function) => {
@@ -253,11 +244,12 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                         }
                     }
                     Value::Class(class) => {
-                        if evaluated_arguments.len() != 0 {
+                        let arity = class.find_method("init").map_or(0, |x| x.arity());
+                        if evaluated_arguments.len() != arity {
                             Err(RuntimeError::new(
                                 format!(
                                     "Expected {} arguments but got {}.",
-                                    0,
+                                    arity,
                                     evaluated_arguments.len()
                                 )
                                 .as_str(),
@@ -269,7 +261,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                                 let mut env = class.environment().new_child();
                                 env.define("this".to_string(), Value::Instance(instance.clone()))
                                     .unwrap();
-                                x.call(self, &vec![], env).unwrap();
+                                x.call(self, &evaluated_arguments, env, true).unwrap();
                             });
                             Ok(Value::Instance(instance))
                         }
@@ -301,10 +293,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                     x.set(name, value.clone());
                     Ok(value)
                 } else {
-                    Err(RuntimeError::new(
-                        "Only instances have fields.",
-                        Some(name),
-                    ))
+                    Err(RuntimeError::new("Only instances have fields.", Some(name)))
                 }
             }
             Expression::This { token, scope } => self.environment.get_at(token, scope.unwrap()),
@@ -358,7 +347,7 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
             Statement::Function(function) => {
                 self.environment.define(
                     function.name().lexeme.clone(),
-                    Value::Function(function.clone(), self.environment.clone()),
+                    Value::Function(function.clone(), self.environment.clone(), false),
                 )?;
                 Ok(Value::Nil)
             }
@@ -419,7 +408,10 @@ impl<'a> Interpreter<'a> {
     fn execute(&mut self, stmt: &Statement<'a>) -> Result<Value<'a>, ErrorType<'a>> {
         stmt.accept(self)
     }
-    pub fn interpret(&mut self, statements: &Vec<Statement<'a>>) -> Result<Value<'a>, ErrorType<'a>> {
+    pub fn interpret(
+        &mut self,
+        statements: &Vec<Statement<'a>>,
+    ) -> Result<Value<'a>, ErrorType<'a>> {
         let mut val = Value::Nil;
         for stmt in statements {
             val = self.execute(stmt)?;
@@ -473,6 +465,10 @@ fn is_equal<'a>(lv: &Value<'a>, rv: &Value<'a>) -> bool {
         },
         Value::Class(l) => match rv {
             Value::Class(r) => l.equals(r),
+            _ => false,
+        },
+        Value::Function(l, le, _) => match rv {
+            Value::Function(r, re, _) => l.equals(r) && le.equals(re),
             _ => false,
         },
         _ => false,

@@ -69,6 +69,18 @@ impl<'a> Environment<'a> {
             },
         )
     }
+    pub fn get_this(&self) -> Result<Value<'a>, ErrorType<'a>> {
+        self.values.peek().map_or(
+            Err(Environment::error("Empty environment".to_string(), None)),
+            |map| match (*map).get("this") {
+                Some(val) => Ok(val.clone()),
+                None => Err(Environment::error(
+                    format!("Undefined variable '{}'.", "this"),
+                    None,
+                )),
+            },
+        )
+    }
     pub fn assign_at(
         &mut self,
         token: &'a Token,
@@ -77,7 +89,11 @@ impl<'a> Environment<'a> {
     ) -> Result<(), ErrorType<'a>> {
         self.ancestor(distance).assign_direct(token, value)
     }
-    pub fn assign_direct(&mut self, token: &'a Token, value: Value<'a>) -> Result<(), ErrorType<'a>> {
+    pub fn assign_direct(
+        &mut self,
+        token: &'a Token,
+        value: Value<'a>,
+    ) -> Result<(), ErrorType<'a>> {
         self.values.peek_mut().map_or(
             Err(Environment::error("Empty environment".to_string(), None)),
             |mut map| match (*map).insert(token.lexeme.clone(), value) {
@@ -101,5 +117,8 @@ impl<'a> Environment<'a> {
             message: msg,
             token: token,
         })
+    }
+    pub fn equals(&self, other: &Environment<'a>) -> bool {
+        self.values.equals(&other.values)
     }
 }

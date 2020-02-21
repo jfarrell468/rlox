@@ -1,4 +1,4 @@
-use crate::callable::{NativeFunction, LoxFunction};
+use crate::callable::{LoxFunction, NativeFunction};
 use crate::class::Class;
 use crate::environment::Environment;
 use crate::instance::Instance;
@@ -12,7 +12,7 @@ pub enum Value<'a> {
     Boolean(bool),
     Number(f64),
     String(String),
-    Function(LoxFunction<'a>, Environment<'a>),
+    Function(LoxFunction<'a>, Environment<'a>, bool),
     NativeFunction(NativeFunction<'a>),
     Class(Class<'a>),
     Instance(Instance<'a>),
@@ -31,7 +31,7 @@ impl<'a> fmt::Display for Value<'a> {
                 }
             }
             Value::String(x) => write!(f, "{}", x),
-            Value::Function(x, _) => write!(f, "{}", x),
+            Value::Function(x, _, _) => write!(f, "{}", x),
             Value::NativeFunction(x) => write!(f, "{}", x),
             Value::Class(x) => write!(f, "{}", x),
             Value::Instance(x) => write!(f, "{}", x),
@@ -240,7 +240,9 @@ mod ast_tests {
                 right: Box::new(Expression::Literal(&number)),
             }),
             operator: &star,
-            right: Box::new(Expression::Grouping(Box::new(Expression::Literal(&number2)))),
+            right: Box::new(Expression::Grouping(Box::new(Expression::Literal(
+                &number2,
+            )))),
         };
         let mut visitor = AstPrinter {};
         assert_eq!(expression.accept(&mut visitor), "(* (- 123) (group 45.67))");

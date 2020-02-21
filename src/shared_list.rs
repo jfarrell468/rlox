@@ -1,7 +1,7 @@
 use std::cell::{Ref, RefCell, RefMut};
 use std::rc::Rc;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct SharedList<T> {
     head: Link<T>,
 }
@@ -20,6 +20,17 @@ impl<T> Node<T> {
             elem: elem,
             next: None,
         }))
+    }
+}
+
+impl<T> Clone for SharedList<T> {
+    fn clone(&self) -> SharedList<T> {
+        match &self.head {
+            None => SharedList::new(),
+            Some(head) => SharedList {
+                head: Some(Rc::clone(head)),
+            },
+        }
     }
 }
 
@@ -67,6 +78,19 @@ impl<T> SharedList<T> {
 
     pub fn empty(&self) -> bool {
         self.head.is_none()
+    }
+
+    pub fn equals(&self, other: &SharedList<T>) -> bool {
+        match &self.head {
+            None => match other.head {
+                None => true,
+                Some(_) => false,
+            },
+            Some(l) => match &other.head {
+                None => false,
+                Some(r) => Rc::ptr_eq(l, r),
+            },
+        }
     }
 }
 

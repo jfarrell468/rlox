@@ -33,6 +33,7 @@ impl<'a> Error for ResolverError<'a> {
 enum FunctionType {
     None,
     Function,
+    Initializer,
     Method,
 }
 
@@ -176,7 +177,17 @@ impl<'a> MutatingVisitor<Statement<'a>, Result<(), ResolverError<'a>>> for Resol
                 } else {
                     match value {
                         None => Ok(()),
-                        Some(x) => self.resolve_expr(x),
+                        Some(x) => {
+                            if let FunctionType::Initializer = self.current_function {
+                                Err(ResolverError {
+                                    message: "Cannot return a value from an initializer."
+                                        .to_string(),
+                                    token: Some(keyword),
+                                })
+                            } else {
+                                self.resolve_expr(x)
+                            }
+                        }
                     }
                 }
             }
@@ -191,7 +202,16 @@ impl<'a> MutatingVisitor<Statement<'a>, Result<(), ResolverError<'a>>> for Resol
                     .unwrap()
                     .insert("this".to_string(), true);
                 for method in methods {
-                    self.resolve_function(method, FunctionType::Method)?;
+                    let function_type = if let Statement::Function(x) = method {
+                        if x.name().lexeme == "init" {
+                            FunctionType::Initializer
+                        } else {
+                            FunctionType::Method
+                        }
+                    } else {
+                        FunctionType::Method
+                    };
+                    self.resolve_function(method, function_type)?;
                 }
                 self.end_scope();
                 self.current_class = enclosing_class;
@@ -215,7 +235,10 @@ impl<'a> Resolver {
     fn resolve_stmt(&mut self, stmt: &mut Statement<'a>) -> Result<(), ResolverError<'a>> {
         stmt.accept_mut(self)
     }
-    pub fn resolve(&mut self, statements: &mut Vec<Statement<'a>>) -> Result<(), ResolverError<'a>> {
+    pub fn resolve(
+        &mut self,
+        statements: &mut Vec<Statement<'a>>,
+    ) -> Result<(), ResolverError<'a>> {
         for stmt in statements {
             self.resolve_stmt(stmt)?;
         }

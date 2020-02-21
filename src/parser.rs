@@ -163,8 +163,11 @@ impl<'a> Parser<'a> {
                 if parameters.len() >= 255 {
                     return Err(self.error("Cannot have more than 255 parameters."));
                 }
-                parameters
-                    .push(consume!(self, TokenType::Identifier, "Expect parameter name."));
+                parameters.push(consume!(
+                    self,
+                    TokenType::Identifier,
+                    "Expect parameter name."
+                ));
                 if !matches!(self, TokenType::Comma) {
                     break;
                 }
@@ -179,9 +182,7 @@ impl<'a> Parser<'a> {
         );
         let body = self.block()?;
         Ok(Statement::Function(LoxFunction::new(
-            name,
-            parameters,
-            body,
+            name, parameters, body,
         )))
     }
     fn statement(&mut self) -> Result<Statement<'a>, ParseError<'a>> {

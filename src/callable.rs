@@ -26,7 +26,11 @@ impl<'a> fmt::Display for LoxFunction<'a> {
 }
 
 impl<'a> LoxFunction<'a> {
-    pub fn new(name: &'a Token, params: Vec<&'a Token>, body: Vec<Statement<'a>>) -> LoxFunction<'a> {
+    pub fn new(
+        name: &'a Token,
+        params: Vec<&'a Token>,
+        body: Vec<Statement<'a>>,
+    ) -> LoxFunction<'a> {
         LoxFunction {
             data: Rc::new(RefCell::new(LoxFunctionImpl { name, params, body })),
         }
@@ -36,6 +40,7 @@ impl<'a> LoxFunction<'a> {
         interpreter: &mut Interpreter<'a>,
         arguments: &Vec<Value<'a>>,
         closure: Environment<'a>,
+        is_initializer: bool,
     ) -> Result<Value<'a>, ErrorType<'a>> {
         let mut environment = closure.new_child();
 
@@ -43,12 +48,16 @@ impl<'a> LoxFunction<'a> {
             environment.define(param_and_val.0.lexeme.clone(), param_and_val.1.clone())?;
         }
         let result = interpreter.execute_block(&*self.body(), environment);
-        match result {
-            Ok(v) => Ok(v),
-            Err(e) => match e {
-                ErrorType::Return(v) => Ok(v.0),
-                _ => Err(e),
-            },
+        if is_initializer {
+            Ok(closure.get_this()?)
+        } else {
+            match result {
+                Ok(v) => Ok(v),
+                Err(e) => match e {
+                    ErrorType::Return(v) => Ok(v.0),
+                    _ => Err(e),
+                },
+            }
         }
     }
     pub fn arity(&self) -> usize {
@@ -65,6 +74,9 @@ impl<'a> LoxFunction<'a> {
     }
     pub fn body_mut(&mut self) -> RefMut<Vec<Statement<'a>>> {
         RefMut::map(self.data.borrow_mut(), |data| &mut data.body)
+    }
+    pub fn equals(&self, other: &LoxFunction<'a>) -> bool {
+        Rc::ptr_eq(&self.data, &other.data)
     }
 }
 
