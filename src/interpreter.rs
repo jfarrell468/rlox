@@ -244,7 +244,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                         }
                     }
                     Value::Class(class) => {
-                        let arity = class.find_method("init").map_or(0, |x| x.arity());
+                        let arity = class.find_method("init").map_or(0, |(f, _)| f.arity());
                         if evaluated_arguments.len() != arity {
                             Err(RuntimeError::new(
                                 format!(
@@ -257,11 +257,11 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                             ))
                         } else {
                             let instance = Instance::new(class.clone());
-                            class.find_method("init").map(|x| {
-                                let mut env = class.environment().new_child();
+                            class.find_method("init").map(|(f, e)| {
+                                let mut env = e.new_child();
                                 env.define("this".to_string(), Value::Instance(instance.clone()))
                                     .unwrap();
-                                x.call(self, &evaluated_arguments, env, true).unwrap();
+                                f.call(self, &evaluated_arguments, env, true).unwrap();
                             });
                             Ok(Value::Instance(instance))
                         }
@@ -297,6 +297,36 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                 }
             }
             Expression::This { token, scope } => self.environment.get_at(token, scope.unwrap()),
+            Expression::Super {
+                keyword,
+                method,
+                scope,
+            } => {
+                let superclass = self.environment.get_at(keyword, scope.unwrap())?;
+                let object = self.environment.get_this_at(scope.unwrap() - 1)?;
+                if let Value::Class(sc) = superclass {
+                    sc.find_method(method.lexeme.as_str()).map_or(
+                        Err(RuntimeError::new(
+                            format!("Undefined property '{}'.", method.lexeme).as_str(),
+                            Some(keyword),
+                        )),
+                        |(f, e)| {
+                            let mut env = e.new_child();
+                            env.define("this".to_string(), object).unwrap();
+                            Ok(Value::Function(
+                                f.clone(),
+                                env,
+                                method.lexeme.as_str() == "init",
+                            ))
+                        },
+                    )
+                } else {
+                    Err(RuntimeError::new(
+                        "Wrong type for superclass value",
+                        Some(keyword),
+                    ))
+                }
+            }
         }
     }
 }
@@ -360,19 +390,50 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
             }
             Statement::Class {
                 name,
+                superclass,
                 methods: method_statements,
             } => {
+                let mut superclass_class: Option<Class> = None;
+                if let Some(superclass) = superclass {
+                    if let Expression::Variable {
+                        name: superclass_name,
+                        scope: _,
+                    } = superclass
+                    {
+                        if let Value::Class(sc) = self.evaluate(superclass)? {
+                            superclass_class = Some(sc);
+                        } else {
+                            return Err(RuntimeError::new(
+                                "Superclass must be a class.",
+                                Some(superclass_name),
+                            ));
+                        }
+                    } else {
+                        return Err(RuntimeError::new(
+                            "Wrong type for superclass expression.",
+                            None,
+                        ));
+                    }
+                }
                 self.environment.define(name.lexeme.clone(), Value::Nil)?;
+                let mut environment = self.environment.clone();
+                if let Some(superclass) = &superclass_class {
+                    environment = environment.new_child();
+                    environment.define("super".to_string(), Value::Class(superclass.clone()))?;
+                }
                 let mut methods: BTreeMap<String, LoxFunction> = BTreeMap::new();
                 for method in method_statements {
                     if let Statement::Function(x) = method {
                         methods.insert(x.name().lexeme.clone(), x.clone());
                     }
                 }
-                self.environment.assign_direct(
+                let class = Value::Class(Class::new(
                     name,
-                    Value::Class(Class::new(name, methods, self.environment.clone())),
-                )?;
+                    superclass_class,
+                    methods,
+                    environment.clone(),
+                ));
+                self.environment.assign_direct(name, class)?;
                 Ok(Value::Nil)
             }
         }

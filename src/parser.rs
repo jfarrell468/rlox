@@ -119,6 +119,14 @@ impl<'a> Parser<'a> {
     }
     fn class_declaration(&mut self) -> Result<Statement<'a>, ParseError<'a>> {
         let name = consume!(self, TokenType::Identifier, "Expect class name.");
+        let superclass = if matches!(self, TokenType::Less) {
+            Some(Expression::Variable {
+                name: consume!(self, TokenType::Identifier, "Expect superclass name."),
+                scope: None,
+            })
+        } else {
+            None
+        };
         consume!(self, TokenType::LeftBrace, "Expect '{' before class body.");
         let mut methods: Vec<Statement> = Vec::new();
         while !check!(self, TokenType::RightBrace) && !self.is_at_end() {
@@ -126,7 +134,11 @@ impl<'a> Parser<'a> {
         }
 
         consume!(self, TokenType::RightBrace, "Expect '}' after class body.");
-        Ok(Statement::Class { name, methods })
+        Ok(Statement::Class {
+            name,
+            superclass,
+            methods,
+        })
     }
     fn var_declaration(&mut self) -> Result<Statement<'a>, ParseError<'a>> {
         let name = consume!(self, TokenType::Identifier, "Expect variable name.");
@@ -521,6 +533,20 @@ impl<'a> Parser<'a> {
                 token: self.advance(),
                 scope: None,
             }),
+            TokenType::Super => {
+                let keyword = self.advance();
+                consume!(self, TokenType::Dot, "Expect '.' after 'super'.");
+                let method = consume!(
+                    self,
+                    TokenType::Identifier,
+                    "Expect superclass method name."
+                );
+                Ok(Expression::Super {
+                    keyword,
+                    method,
+                    scope: None,
+                })
+            }
             _ => Err(self.error("Expect expression.")),
         }
     }

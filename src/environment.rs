@@ -69,6 +69,9 @@ impl<'a> Environment<'a> {
             },
         )
     }
+    pub fn get_this_at(&self, distance: usize) -> Result<Value<'a>, ErrorType<'a>> {
+        self.ancestor(distance).get_this()
+    }
     pub fn get_this(&self) -> Result<Value<'a>, ErrorType<'a>> {
         self.values.peek().map_or(
             Err(Environment::error("Empty environment".to_string(), None)),

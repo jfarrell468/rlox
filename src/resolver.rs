@@ -41,6 +41,7 @@ enum FunctionType {
 enum ClassType {
     None,
     Class,
+    Subclass,
 }
 
 pub struct Resolver {
@@ -120,7 +121,22 @@ impl<'a> MutatingVisitor<Expression<'a>, Result<(), ResolverError<'a>>> for Reso
                     message: "Cannot use 'this' outside of a class.".to_string(),
                     token: Some(token),
                 }),
-                ClassType::Class => self.resolve_local(expr),
+                ClassType::Class | ClassType::Subclass => self.resolve_local(expr),
+            },
+            Expression::Super {
+                keyword,
+                method: _,
+                scope: _,
+            } => match self.current_class {
+                ClassType::None => Err(ResolverError {
+                    message: "Cannot use 'super' outside of a class.".to_string(),
+                    token: Some(keyword),
+                }),
+                ClassType::Class => Err(ResolverError {
+                    message: "Cannot use 'super' in a class with no superclass.".to_string(),
+                    token: Some(keyword),
+                }),
+                ClassType::Subclass => self.resolve_local(expr),
             },
         }
     }
@@ -191,11 +207,41 @@ impl<'a> MutatingVisitor<Statement<'a>, Result<(), ResolverError<'a>>> for Resol
                     }
                 }
             }
-            Statement::Class { name, methods } => {
+            Statement::Class {
+                name,
+                superclass,
+                methods,
+            } => {
                 let enclosing_class = self.current_class.clone();
                 self.current_class = ClassType::Class;
                 self.declare(name)?;
                 self.define(name);
+                if let Some(superclass) = superclass {
+                    self.current_class = ClassType::Subclass;
+                    if let Expression::Variable {
+                        name: superclass_name,
+                        scope: _,
+                    } = superclass
+                    {
+                        if superclass_name.lexeme == name.lexeme {
+                            return Err(ResolverError {
+                                message: "A class cannot inherit from itself.".to_string(),
+                                token: Some(superclass_name),
+                            });
+                        }
+                    } else {
+                        return Err(ResolverError {
+                            message: "Superclass expression has wrong type.".to_string(),
+                            token: None,
+                        });
+                    }
+                    self.resolve_expr(superclass)?;
+                    self.begin_scope();
+                    self.scopes
+                        .last_mut()
+                        .unwrap()
+                        .insert("super".to_string(), true);
+                }
                 self.begin_scope();
                 self.scopes
                     .last_mut()
@@ -203,7 +249,7 @@ impl<'a> MutatingVisitor<Statement<'a>, Result<(), ResolverError<'a>>> for Resol
                     .insert("this".to_string(), true);
                 for method in methods {
                     let function_type = if let Statement::Function(x) = method {
-                        if x.name().lexeme == "init" {
+                        if x.name().lexeme.as_str() == "init" {
                             FunctionType::Initializer
                         } else {
                             FunctionType::Method
@@ -214,6 +260,9 @@ impl<'a> MutatingVisitor<Statement<'a>, Result<(), ResolverError<'a>>> for Resol
                     self.resolve_function(method, function_type)?;
                 }
                 self.end_scope();
+                if let Some(_) = superclass {
+                    self.end_scope();
+                }
                 self.current_class = enclosing_class;
                 Ok(())
             }
@@ -275,10 +324,15 @@ impl<'a> Resolver {
                 scope: _,
             } => name,
             Expression::This { token, scope: _ } => token,
+            Expression::Super {
+                keyword,
+                method: _,
+                scope: _,
+            } => keyword,
             _ => {
                 return Err(ResolverError {
                     message:
-                        "Can only resolve an expression of type 'variable', 'assign', or 'this'."
+                        "Can only resolve an expression of type 'variable', 'assign', 'this', or 'super'."
                             .to_string(),
                     token: None,
                 });
@@ -300,6 +354,14 @@ impl<'a> Resolver {
                         return Ok(());
                     }
                     Expression::This { token: _, scope } => {
+                        *scope = Some(self.scopes.len() - 1 - i);
+                        return Ok(());
+                    }
+                    Expression::Super {
+                        keyword: _,
+                        method: _,
+                        scope,
+                    } => {
                         *scope = Some(self.scopes.len() - 1 - i);
                         return Ok(());
                     }

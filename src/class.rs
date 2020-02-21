@@ -14,6 +14,7 @@ pub struct Class<'a> {
 #[derive(Debug)]
 struct ClassImpl<'a> {
     name: &'a Token,
+    superclass: Option<Class<'a>>,
     methods: BTreeMap<String, LoxFunction<'a>>,
     environment: Environment<'a>,
 }
@@ -21,19 +22,28 @@ struct ClassImpl<'a> {
 impl<'a> Class<'a> {
     pub fn new(
         name: &'a Token,
+        superclass: Option<Class<'a>>,
         methods: BTreeMap<String, LoxFunction<'a>>,
         environment: Environment<'a>,
     ) -> Class<'a> {
         Class {
             data: Rc::new(RefCell::new(ClassImpl {
                 name,
+                superclass,
                 methods,
                 environment,
             })),
         }
     }
-    pub fn find_method(&self, name: &str) -> Option<LoxFunction<'a>> {
-        self.data.borrow().methods.get(name).map(|x| x.clone())
+    pub fn find_method(&self, name: &str) -> Option<(LoxFunction<'a>, Environment<'a>)> {
+        let data = self.data.borrow();
+        match data.methods.get(name) {
+            Some(method) => Some((method.clone(), self.environment().clone())),
+            None => match &data.superclass {
+                Some(superclass) => superclass.find_method(name),
+                None => None,
+            },
+        }
     }
     pub fn environment(&self) -> Environment<'a> {
         self.data.borrow().environment.clone()

@@ -84,6 +84,11 @@ pub enum Expression<'a> {
         token: &'a Token,
         scope: Option<usize>,
     },
+    Super {
+        keyword: &'a Token,
+        method: &'a Token,
+        scope: Option<usize>,
+    },
 }
 
 pub trait Visitor<T, Output> {
@@ -128,6 +133,7 @@ pub enum Statement<'a> {
     },
     Class {
         name: &'a Token,
+        superclass: Option<Expression<'a>>,
         methods: Vec<Statement<'a>>,
     },
 }
@@ -203,6 +209,11 @@ impl<'a> Visitor<Expression<'a>, String> for AstPrinter {
                 value: _,
             } => String::from("(set)"),
             Expression::This { token: _, scope: _ } => String::from("this"),
+            Expression::Super {
+                keyword: _,
+                method: _,
+                scope: _,
+            } => String::from("super"),
         }
     }
 }
