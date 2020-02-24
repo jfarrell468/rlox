@@ -1,15 +1,7 @@
-mod ast;
-mod callable;
-mod class;
-mod environment;
-mod instance;
-mod interpreter;
-mod parser;
-mod resolver;
-mod scanner;
-mod shared_list;
-mod token;
-
+use rlox::interpreter;
+use rlox::parser;
+use rlox::resolver;
+use rlox::scanner;
 use std::env;
 use std::fs;
 use std::io::{self, Write};
