@@ -14,7 +14,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub struct Interpreter<'a> {
     globals: Environment<'a>,
     environment: Environment<'a>,
-    out: &'a mut io::Write,
+    out: &'a mut dyn io::Write,
 }
 
 #[derive(Debug)]
@@ -439,7 +439,7 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
 }
 
 impl<'a> Interpreter<'a> {
-    pub fn new(out: &'a mut io::Write) -> Interpreter<'a> {
+    pub fn new(out: &'a mut dyn io::Write) -> Interpreter<'a> {
         let mut env = Environment::new();
         env.define(
             "clock".to_string(),

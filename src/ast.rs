@@ -100,10 +100,10 @@ pub trait MutatingVisitor<T, Output> {
 }
 
 impl<'a> Expression<'a> {
-    pub fn accept<T>(&self, v: &mut Visitor<Expression<'a>, T>) -> T {
+    pub fn accept<T>(&self, v: &mut dyn Visitor<Expression<'a>, T>) -> T {
         v.visit(self)
     }
-    pub fn accept_mut<T>(&mut self, v: &mut MutatingVisitor<Expression<'a>, T>) -> T {
+    pub fn accept_mut<T>(&mut self, v: &mut dyn MutatingVisitor<Expression<'a>, T>) -> T {
         v.visit(self)
     }
 }
@@ -139,10 +139,10 @@ pub enum Statement<'a> {
 }
 
 impl<'a> Statement<'a> {
-    pub fn accept<T>(&self, v: &mut Visitor<Statement<'a>, T>) -> T {
+    pub fn accept<T>(&self, v: &mut dyn Visitor<Statement<'a>, T>) -> T {
         v.visit(self)
     }
-    pub fn accept_mut<T>(&mut self, v: &mut MutatingVisitor<Statement<'a>, T>) -> T {
+    pub fn accept_mut<T>(&mut self, v: &mut dyn MutatingVisitor<Statement<'a>, T>) -> T {
         v.visit(self)
     }
 }
