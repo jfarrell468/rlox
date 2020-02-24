@@ -58,9 +58,10 @@ fn run(source: &str) -> (bool, bool) {
     }
 
     let mut resolver = resolver::Resolver::new();
+    let mut out = io::stdout();
     match resolver.resolve(&mut statements) {
         Ok(_) => {
-            let mut interpreter = interpreter::Interpreter::new();
+            let mut interpreter = interpreter::Interpreter::new(&mut out);
             match interpreter.interpret(&statements) {
                 Ok(_) => (scan_success, true),
                 Err(err) => {

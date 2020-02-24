@@ -7,11 +7,14 @@ use crate::token::{Token, TokenType};
 use std::collections::BTreeMap;
 use std::error::Error;
 use std::fmt;
+use std::io;
+use std::io::Read;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct Interpreter<'a> {
     globals: Environment<'a>,
     environment: Environment<'a>,
+    out: &'a mut io::Write,
 }
 
 #[derive(Debug)]
@@ -45,12 +48,12 @@ impl<'a> RuntimeError<'a> {
 pub struct Return<'a>(pub Value<'a>);
 impl<'a> fmt::Display for Return<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "return {}", self.0)
     }
 }
 impl<'a> Error for Return<'a> {
     fn description(&self) -> &str {
-        ""
+        "return"
     }
 }
 
@@ -336,57 +339,52 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
         match stmt {
             Statement::Print(e) => {
                 let val = self.evaluate(e)?;
-                println!("{}", val);
-                Ok(val)
+                writeln!(self.out, "{}", val).unwrap();
             }
-            Statement::Expression(e) => self.evaluate(e),
+            Statement::Expression(e) => {
+                self.evaluate(e)?;
+            }
             Statement::Var { name, initializer } => {
                 let val = match initializer {
                     None => Value::Nil,
                     Some(x) => self.evaluate(x)?,
                 };
                 self.environment.define(name.lexeme.clone(), val.clone())?;
-                Ok(val)
             }
-            Statement::Block(stmts) => self.execute_block(stmts, self.environment.new_child()),
+            Statement::Block(stmts) => {
+                self.execute_block(stmts, self.environment.new_child())?;
+            }
             Statement::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
                 if is_truthy(&self.evaluate(condition)?) {
-                    self.execute(then_branch)
+                    self.execute(then_branch)?;
                 } else if let Some(else_branch) = else_branch {
-                    self.execute(else_branch)
-                } else {
-                    Ok(Value::Nil)
+                    self.execute(else_branch)?;
                 }
             }
-            Statement::While { condition, body } => {
-                let mut val = Value::Nil;
-                loop {
-                    if let Some(x) = condition {
-                        if !is_truthy(&self.evaluate(x)?) {
-                            break;
-                        }
+            Statement::While { condition, body } => loop {
+                if let Some(x) = condition {
+                    if !is_truthy(&self.evaluate(x)?) {
+                        break;
                     }
-                    val = self.execute(body)?.clone();
                 }
-                Ok(val)
-            }
+                self.execute(body)?;
+            },
             Statement::Function(function) => {
                 self.environment.define(
                     function.name().lexeme.clone(),
                     Value::Function(function.clone(), self.environment.clone(), false),
                 )?;
-                Ok(Value::Nil)
             }
             Statement::Return { keyword: _, value } => {
                 let val = match value {
                     None => Value::Nil,
                     Some(x) => self.evaluate(x)?,
                 };
-                Err(ErrorType::Return(Return(val.clone())))
+                return Err(ErrorType::Return(Return(val.clone())));
             }
             Statement::Class {
                 name,
@@ -434,14 +432,14 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
                     environment.clone(),
                 ));
                 self.environment.assign_direct(name, class)?;
-                Ok(Value::Nil)
             }
         }
+        Ok(Value::Nil)
     }
 }
 
 impl<'a> Interpreter<'a> {
-    pub fn new() -> Interpreter<'a> {
+    pub fn new(out: &'a mut io::Write) -> Interpreter<'a> {
         let mut env = Environment::new();
         env.define(
             "clock".to_string(),
@@ -457,10 +455,68 @@ impl<'a> Interpreter<'a> {
                 arity: 0,
             }),
         )
-        .expect("Failed to define native functions");
+        .expect("Failed to define native function 'clock'");
+        env.define(
+            "getc".to_string(),
+            Value::NativeFunction(NativeFunction {
+                call: |_: &Vec<Value>| -> Value {
+                    let mut buffer = [0; 1];
+                    Value::Number(match io::stdin().read(&mut buffer) {
+                        Ok(1) => buffer[0] as f64,
+                        _ => -1.0,
+                    })
+                },
+                arity: 0,
+            }),
+        )
+        .expect("Failed to define native function 'getc'");
+        env.define(
+            "chr".to_string(),
+            Value::NativeFunction(NativeFunction {
+                call: |args: &Vec<Value>| -> Value {
+                    if let Value::Number(x) = args[0] {
+                        if let Some(x) = std::char::from_u32(x as u32) {
+                            let mut y = String::from("");
+                            y.push(x);
+                            return Value::String(y);
+                        }
+                    }
+                    Value::Nil
+                },
+                arity: 1,
+            }),
+        )
+        .expect("Failed to define native function 'chr'");
+        env.define(
+            "exit".to_string(),
+            Value::NativeFunction(NativeFunction {
+                call: |args: &Vec<Value>| -> Value {
+                    std::process::exit(match args[0] {
+                        Value::Number(x) => x as i32,
+                        _ => 0,
+                    });
+                },
+                arity: 1,
+            }),
+        )
+        .expect("Failed to define native function 'exit'");
+        env.define(
+            "print_error".to_string(),
+            Value::NativeFunction(NativeFunction {
+                call: |args: &Vec<Value>| -> Value {
+                    if let Value::String(x) = &args[0] {
+                        eprintln!("{}", x);
+                    }
+                    Value::Nil
+                },
+                arity: 1,
+            }),
+        )
+        .expect("Failed to define native function 'print_error'");
         Interpreter {
             globals: env.clone(),
             environment: env,
+            out: out,
         }
     }
     fn evaluate(&mut self, expr: &Expression<'a>) -> Result<Value<'a>, ErrorType<'a>> {
@@ -489,7 +545,7 @@ impl<'a> Interpreter<'a> {
         self.environment = env;
         for stmt in stmts {
             result = self.execute(stmt);
-            if let Err(_) = result {
+            if let Err(_) = &result {
                 break;
             }
         }
@@ -528,6 +584,10 @@ fn is_equal<'a>(lv: &Value<'a>, rv: &Value<'a>) -> bool {
             Value::Class(r) => l.equals(r),
             _ => false,
         },
+        Value::Instance(l) => match rv {
+            Value::Instance(r) => l.equals(r),
+            _ => false,
+        },
         Value::Function(l, le, _) => match rv {
             Value::Function(r, re, _) => l.equals(r) && le.equals(re),
             _ => false,
@@ -538,13 +598,12 @@ fn is_equal<'a>(lv: &Value<'a>, rv: &Value<'a>) -> bool {
 
 #[cfg(test)]
 mod interpreter_tests {
-    use crate::ast::Value;
     use crate::interpreter;
     use crate::parser;
     use crate::resolver;
     use crate::scanner;
 
-    fn expect_number(source: &str, expected_value: f64) {
+    fn expect_output(source: &str, expected_output: &str) {
         let (tokens, success) = scanner::scan_tokens(source);
         assert!(success);
         let (mut statements, last_error) = parser::parse(&tokens);
@@ -552,44 +611,49 @@ mod interpreter_tests {
         let mut resolver = resolver::Resolver::new();
         let result = resolver.resolve(&mut statements);
         assert!(result.is_ok(), "{}", result.err().unwrap());
-        let mut interpreter = interpreter::Interpreter::new();
-        let val = interpreter.interpret(&mut statements);
-        assert!(val.is_ok(), "{}", val.err().unwrap());
-        let val = val.unwrap();
-        match val {
-            Value::Number(x) => assert_eq!(x, expected_value),
-            _ => panic!("Wrong type: {:?}", val),
+        let mut out = Vec::new();
+        {
+            let mut interpreter = interpreter::Interpreter::new(&mut out);
+            let val = interpreter.interpret(&mut statements);
+            assert!(val.is_ok(), "{}", val.err().unwrap());
         }
+        assert_eq!(
+            out.as_slice(),
+            expected_output.as_bytes(),
+            "{} != {}",
+            String::from_utf8(out.clone()).unwrap(),
+            expected_output
+        )
     }
 
     #[test]
     fn addition_statement() {
-        expect_number("1+2;", 3.0);
+        expect_output("print 1+2;", "3\n");
     }
 
     #[test]
     fn variable_declaration() {
-        expect_number("var x = 3;", 3.0);
-        expect_number("var x = 3; x + 1;", 4.0);
+        expect_output("var x = 3; print x;", "3\n");
+        expect_output("var x = 3; print x + 1;", "4\n");
     }
 
     #[test]
     fn variable_scope() {
-        expect_number("var x = 1; { var x = 2; } x;", 1.0);
-        expect_number("var x = 1; { var x = 2; x; }", 2.0);
+        expect_output("var x = 1; { var x = 2; } print x;", "1\n");
+        expect_output("var x = 1; { var x = 2; print x; }", "2\n");
     }
 
     #[test]
     fn while_loop() {
-        expect_number(
-            "var a = 0; var b = 1; while (a < 10000) { var temp = a; a = b; b = temp + b; } a;",
-            10946.0,
+        expect_output(
+            "var a = 0; var b = 1; while (a < 10000) { var temp = a; a = b; b = temp + b; } print a;",
+            "10946\n",
         );
     }
 
     #[test]
     fn for_loop() {
-        expect_number(
+        expect_output(
             r#"
 var a = 1;
 for(
@@ -599,37 +663,33 @@ for(
 ) {
   a = a * b;
 }
-a;"#,
-            720.0,
+print a;"#,
+            "720\n",
         )
     }
 
     #[test]
-    fn function() {
-        expect_number("fun square(x) { x * x; } square(2);", 4.0);
-    }
-
-    #[test]
     fn function_return() {
-        expect_number(
-            "fun sign(x) { if (x==0) { return 0; } if (x<0) { return -1; } return 1; } sign(-2);",
-            -1.0,
+        expect_output("fun square(x) { return x * x; } print square(2);", "4\n");
+        expect_output(
+            "fun sign(x) { if (x==0) { return 0; } if (x<0) { return -1; } return 1; } print sign(-2);",
+            "-1\n",
         );
     }
 
     #[test]
     fn recursion() {
-        expect_number(
-            r#"fun factorial(x) { if(x<=1) { return 1; } return x * factorial(x-1); } factorial(5);"#,
-            120.0,
+        expect_output(
+            r#"fun factorial(x) { if(x<=1) { return 1; } return x * factorial(x-1); } print factorial(5);"#,
+            "120\n",
         );
     }
 
     #[test]
     fn scope() {
-        expect_number(
-            "var a = 1; { fun get_a() { return a; } var a = 2; get_a(); }",
-            1.0,
+        expect_output(
+            "var a = 1; { fun get_a() { return a; } var a = 2; print get_a(); }",
+            "1\n",
         )
     }
 }

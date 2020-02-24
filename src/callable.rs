@@ -48,15 +48,23 @@ impl<'a> LoxFunction<'a> {
             environment.define(param_and_val.0.lexeme.clone(), param_and_val.1.clone())?;
         }
         let result = interpreter.execute_block(&*self.body(), environment);
-        if is_initializer {
-            Ok(closure.get_this()?)
-        } else {
-            match result {
-                Ok(v) => Ok(v),
-                Err(e) => match e {
-                    ErrorType::Return(v) => Ok(v.0),
-                    _ => Err(e),
-                },
+        match result {
+            Err(e) => match e {
+                ErrorType::Return(r) => {
+                    if is_initializer {
+                        Ok(closure.get_this()?)
+                    } else {
+                        Ok(r.0)
+                    }
+                }
+                _ => Err(e),
+            },
+            Ok(_) => {
+                if is_initializer {
+                    Ok(closure.get_this()?)
+                } else {
+                    Ok(Value::Nil)
+                }
             }
         }
     }

@@ -58,6 +58,9 @@ impl<'a> Instance<'a> {
             .fields
             .insert(name.lexeme.clone(), value);
     }
+    pub fn equals(&self, other: &Instance<'a>) -> bool {
+        Rc::ptr_eq(&self.data, &other.data)
+    }
 }
 
 impl<'a> fmt::Display for Instance<'a> {
