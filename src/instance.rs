@@ -27,22 +27,22 @@ impl<'a> Instance<'a> {
             })),
         }
     }
-    pub fn get(&self, name: &'a Token) -> Result<Value<'a>, ErrorType<'a>> {
+    pub fn get(&self, name: &'a Token<'a>) -> Result<Value<'a>, ErrorType<'a>> {
         self.data
             .borrow()
             .fields
-            .get(name.lexeme.as_str())
+            .get(name.lexeme)
             .map_or_else(
                 || {
                     self.data
                         .borrow()
                         .class
-                        .find_method(name.lexeme.as_str())
+                        .find_method(name.lexeme)
                         .map(|(f, e)| {
                             let mut env = e.new_child();
                             env.define("this".to_string(), Value::Instance(self.clone()))
                                 .unwrap();
-                            Value::Function(f.clone(), env, name.lexeme.as_str() == "init")
+                            Value::Function(f.clone(), env, name.lexeme == "init")
                         })
                         .ok_or(RuntimeError::new(
                             format!("Undefined property '{}'.", name.lexeme).as_str(),
@@ -52,11 +52,11 @@ impl<'a> Instance<'a> {
                 |x| Ok(x.clone()),
             )
     }
-    pub fn set(&mut self, name: &'a Token, value: Value<'a>) {
+    pub fn set(&mut self, name: &'a Token<'a>, value: Value<'a>) {
         self.data
             .borrow_mut()
             .fields
-            .insert(name.lexeme.clone(), value);
+            .insert(name.lexeme.to_string(), value);
     }
     pub fn equals(&self, other: &Instance<'a>) -> bool {
         Rc::ptr_eq(&self.data, &other.data)

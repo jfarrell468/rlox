@@ -9,7 +9,7 @@ use std::fmt;
 #[derive(Debug)]
 pub struct EnvironmentError<'a> {
     message: String,
-    token: Option<&'a Token>,
+    token: Option<&'a Token<'a>>,
 }
 
 impl<'a> fmt::Display for EnvironmentError<'a> {
@@ -54,13 +54,13 @@ impl<'a> Environment<'a> {
             },
         )
     }
-    pub fn get_at(&self, token: &'a Token, distance: usize) -> Result<Value<'a>, ErrorType<'a>> {
+    pub fn get_at(&self, token: &'a Token<'a>, distance: usize) -> Result<Value<'a>, ErrorType<'a>> {
         self.ancestor(distance).get_direct(token)
     }
-    pub fn get_direct(&self, token: &'a Token) -> Result<Value<'a>, ErrorType<'a>> {
+    pub fn get_direct(&self, token: &'a Token<'a>) -> Result<Value<'a>, ErrorType<'a>> {
         self.values.peek().map_or(
             Err(Environment::error("Empty environment".to_string(), None)),
-            |map| match (*map).get(&token.lexeme) {
+            |map| match (*map).get(token.lexeme) {
                 Some(val) => Ok(val.clone()),
                 None => Err(Environment::error(
                     format!("Undefined variable '{}'.", token.lexeme),
@@ -86,7 +86,7 @@ impl<'a> Environment<'a> {
     }
     pub fn assign_at(
         &mut self,
-        token: &'a Token,
+        token: &'a Token<'a>,
         value: Value<'a>,
         distance: usize,
     ) -> Result<(), ErrorType<'a>> {
@@ -94,12 +94,12 @@ impl<'a> Environment<'a> {
     }
     pub fn assign_direct(
         &mut self,
-        token: &'a Token,
+        token: &'a Token<'a>,
         value: Value<'a>,
     ) -> Result<(), ErrorType<'a>> {
         self.values.peek_mut().map_or(
             Err(Environment::error("Empty environment".to_string(), None)),
-            |mut map| match (*map).insert(token.lexeme.clone(), value) {
+            |mut map| match (*map).insert(token.lexeme.to_string(), value) {
                 Some(_) => Ok(()),
                 None => Err(Environment::error(
                     format!("Undefined variable '{}'.", token.lexeme),
@@ -115,7 +115,7 @@ impl<'a> Environment<'a> {
         }
         Environment { values: ancestor }
     }
-    fn error(msg: String, token: Option<&Token>) -> ErrorType {
+    fn error(msg: String, token: Option<&'a Token<'a>>) -> ErrorType<'a> {
         ErrorType::EnvironmentError(EnvironmentError {
             message: msg,
             token: token,

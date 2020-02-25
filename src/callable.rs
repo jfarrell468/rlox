@@ -14,8 +14,8 @@ pub struct LoxFunction<'a> {
 
 #[derive(Debug)]
 struct LoxFunctionImpl<'a> {
-    name: &'a Token,
-    params: Vec<&'a Token>,
+    name: &'a Token<'a>,
+    params: Vec<&'a Token<'a>>,
     body: Vec<Statement<'a>>,
 }
 
@@ -45,7 +45,7 @@ impl<'a> LoxFunction<'a> {
         let mut environment = closure.new_child();
 
         for param_and_val in self.params().iter().zip(arguments.iter()) {
-            environment.define(param_and_val.0.lexeme.clone(), param_and_val.1.clone())?;
+            environment.define(param_and_val.0.lexeme.to_string(), param_and_val.1.clone())?;
         }
         let result = interpreter.execute_block(&*self.body(), environment);
         match result {
@@ -71,10 +71,10 @@ impl<'a> LoxFunction<'a> {
     pub fn arity(&self) -> usize {
         self.data.borrow().params.len()
     }
-    pub fn name(&self) -> Ref<&'a Token> {
+    pub fn name(&self) -> Ref<&'a Token<'a>> {
         Ref::map(self.data.borrow(), |data| &data.name)
     }
-    pub fn params(&self) -> Ref<Vec<&'a Token>> {
+    pub fn params(&self) -> Ref<Vec<&'a Token<'a>>> {
         Ref::map(self.data.borrow(), |data| &data.params)
     }
     pub fn body(&self) -> Ref<Vec<Statement<'a>>> {

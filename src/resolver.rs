@@ -7,7 +7,7 @@ use std::fmt;
 #[derive(Debug)]
 pub struct ResolverError<'a> {
     message: String,
-    token: Option<&'a Token>,
+    token: Option<&'a Token<'a>>,
 }
 
 impl<'a> fmt::Display for ResolverError<'a> {
@@ -74,7 +74,7 @@ impl<'a> MutatingVisitor<Expression<'a>, Result<(), ResolverError<'a>>> for Reso
             Expression::Unary { operator: _, right } => self.resolve_expr(right),
             Expression::Variable { name, scope: _ } => {
                 if let Some(x) = self.scopes.last() {
-                    if !x.get(&name.lexeme).cloned().unwrap_or(true) {
+                    if !x.get(name.lexeme).cloned().unwrap_or(true) {
                         return Err(ResolverError {
                             message: "Cannot read local variable in its own initializer."
                                 .to_string(),
@@ -249,7 +249,7 @@ impl<'a> MutatingVisitor<Statement<'a>, Result<(), ResolverError<'a>>> for Resol
                     .insert("this".to_string(), true);
                 for method in methods {
                     let function_type = if let Statement::Function(x) = method {
-                        if x.name().lexeme.as_str() == "init" {
+                        if x.name().lexeme == "init" {
                             FunctionType::Initializer
                         } else {
                             FunctionType::Method
@@ -301,7 +301,7 @@ impl<'a> Resolver {
     }
     fn declare(&mut self, name: &'a Token) -> Result<(), ResolverError<'a>> {
         self.scopes.last_mut().map_or(Ok(()), |scope| {
-            match scope.insert(name.lexeme.clone(), false) {
+            match scope.insert(name.lexeme.to_string(), false) {
                 None => Ok(()),
                 Some(_) => Err(ResolverError {
                     message: "Variable with this name already declared in this scope.".to_string(),
@@ -312,7 +312,7 @@ impl<'a> Resolver {
     }
     fn define(&mut self, name: &'a Token) {
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name.lexeme.clone(), true);
+            scope.insert(name.lexeme.to_string(), true);
         }
     }
     fn resolve_local(&mut self, expr: &mut Expression<'a>) -> Result<(), ResolverError<'a>> {
@@ -339,7 +339,7 @@ impl<'a> Resolver {
             }
         };
         for (i, cur_scope) in self.scopes.iter().enumerate().rev() {
-            if cur_scope.contains_key(&token.lexeme) {
+            if cur_scope.contains_key(token.lexeme) {
                 match expr {
                     Expression::Variable { name: _, scope } => {
                         *scope = Some(self.scopes.len() - 1 - i);

@@ -2,7 +2,7 @@ use crate::callable::{LoxFunction, NativeFunction};
 use crate::class::Class;
 use crate::environment::Environment;
 use crate::instance::Instance;
-use crate::token::{Token, TokenType};
+use crate::token::Token;
 use std::fmt;
 use std::fmt::Formatter;
 
@@ -43,50 +43,50 @@ impl<'a> fmt::Display for Value<'a> {
 pub enum Expression<'a> {
     Binary {
         left: Box<Expression<'a>>,
-        operator: &'a Token,
+        operator: &'a Token<'a>,
         right: Box<Expression<'a>>,
     },
     Grouping(Box<Expression<'a>>),
-    Literal(&'a Token),
+    Literal(&'a Token<'a>),
     Logical {
         left: Box<Expression<'a>>,
-        operator: &'a Token,
+        operator: &'a Token<'a>,
         right: Box<Expression<'a>>,
     },
     Unary {
-        operator: &'a Token,
+        operator: &'a Token<'a>,
         right: Box<Expression<'a>>,
     },
     Variable {
-        name: &'a Token,
+        name: &'a Token<'a>,
         scope: Option<usize>,
     },
     Assign {
-        name: &'a Token,
+        name: &'a Token<'a>,
         value: Box<Expression<'a>>,
         scope: Option<usize>,
     },
     Call {
         callee: Box<Expression<'a>>,
-        paren: &'a Token,
+        paren: &'a Token<'a>,
         arguments: Vec<Expression<'a>>,
     },
     Get {
         object: Box<Expression<'a>>,
-        name: &'a Token,
+        name: &'a Token<'a>,
     },
     Set {
         object: Box<Expression<'a>>,
-        name: &'a Token,
+        name: &'a Token<'a>,
         value: Box<Expression<'a>>,
     },
     This {
-        token: &'a Token,
+        token: &'a Token<'a>,
         scope: Option<usize>,
     },
     Super {
-        keyword: &'a Token,
-        method: &'a Token,
+        keyword: &'a Token<'a>,
+        method: &'a Token<'a>,
         scope: Option<usize>,
     },
 }
@@ -113,7 +113,7 @@ pub enum Statement<'a> {
     Print(Expression<'a>),
     Expression(Expression<'a>),
     Var {
-        name: &'a Token,
+        name: &'a Token<'a>,
         initializer: Option<Expression<'a>>,
     },
     Block(Vec<Statement<'a>>),
@@ -128,11 +128,11 @@ pub enum Statement<'a> {
     },
     Function(LoxFunction<'a>),
     Return {
-        keyword: &'a Token,
+        keyword: &'a Token<'a>,
         value: Option<Expression<'a>>,
     },
     Class {
-        name: &'a Token,
+        name: &'a Token<'a>,
         superclass: Option<Expression<'a>>,
         methods: Vec<Statement<'a>>,
     },
@@ -171,11 +171,7 @@ impl<'a> Visitor<Expression<'a>, String> for AstPrinter {
                 right,
             } => self.parenthesize(&operator.lexeme, vec![left, right]),
             Expression::Grouping(x) => self.parenthesize("group", vec![x]),
-            Expression::Literal(x) => match &x.tokentype {
-                TokenType::String(y) => y.clone(),
-                TokenType::Number(y) => format!("{}", y),
-                _ => String::from(""),
-            },
+            Expression::Literal(x) => x.lexeme.to_string(),
             Expression::Unary { operator, right } => {
                 self.parenthesize(&operator.lexeme, vec![right])
             }
@@ -227,22 +223,22 @@ mod ast_tests {
     fn basic_ast_test() {
         let minus = Token {
             tokentype: TokenType::Minus,
-            lexeme: String::from("-"),
+            lexeme: "-",
             line: 1,
         };
         let star = Token {
             tokentype: TokenType::Star,
-            lexeme: String::from("*"),
+            lexeme: "*",
             line: 1,
         };
         let number = Token {
-            tokentype: TokenType::Number(123.0),
-            lexeme: String::from("123.0"),
+            tokentype: TokenType::Number,
+            lexeme: "123",
             line: 1,
         };
         let number2 = Token {
-            tokentype: TokenType::Number(45.67),
-            lexeme: String::from("45.67"),
+            tokentype: TokenType::Number,
+            lexeme: "45.67",
             line: 1,
         };
         let expression = Expression::Binary {

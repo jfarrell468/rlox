@@ -7,7 +7,7 @@ use std::fmt;
 #[derive(Debug)]
 pub struct ParseError<'a> {
     message: String,
-    cur: &'a Token,
+    cur: &'a Token<'a>,
 }
 
 impl<'a> fmt::Display for ParseError<'a> {
@@ -33,11 +33,11 @@ impl<'a> Error for ParseError<'a> {
 }
 
 struct Parser<'a> {
-    tokens: &'a Vec<Token>,
+    tokens: &'a Vec<Token<'a>>,
     current: usize,
 }
 
-pub fn parse<'a>(tokens: &'a Vec<Token>) -> (Vec<Statement<'a>>, Option<ParseError>) {
+pub fn parse<'a>(tokens: &'a Vec<Token<'a>>) -> (Vec<Statement<'a>>, Option<ParseError>) {
     let mut parser = Parser {
         tokens: tokens,
         current: 0,
@@ -57,12 +57,6 @@ pub fn parse<'a>(tokens: &'a Vec<Token>) -> (Vec<Statement<'a>>, Option<ParseErr
 }
 
 macro_rules! consume {
-    ($self:expr, TokenType::Identifier, $error:expr) => {
-        match $self.peek()?.tokentype.clone() {
-            TokenType::Identifier(_) => $self.advance(),
-            _ => return Err($self.error($error)),
-        }
-    };
     ($self:expr, $token_type:pat, $error:expr) => {
         match $self.peek()?.tokentype {
             $token_type => $self.advance(),
@@ -169,7 +163,7 @@ impl<'a> Parser<'a> {
             TokenType::LeftParen,
             format!("Expect '(' after {} name", kind).as_str()
         );
-        let mut parameters: Vec<&Token> = Vec::new();
+        let mut parameters: Vec<&'a Token<'a>> = Vec::new();
         if !check!(self, TokenType::RightParen) {
             loop {
                 if parameters.len() >= 255 {
@@ -517,9 +511,9 @@ impl<'a> Parser<'a> {
             TokenType::False
             | TokenType::True
             | TokenType::Nil
-            | TokenType::Number(_)
-            | TokenType::String(_) => Ok(Expression::Literal(self.advance())),
-            TokenType::Identifier(_) => Ok(Expression::Variable {
+            | TokenType::Number
+            | TokenType::String => Ok(Expression::Literal(self.advance())),
+            TokenType::Identifier => Ok(Expression::Variable {
                 name: self.advance(),
                 scope: None,
             }),
@@ -570,7 +564,7 @@ impl<'a> Parser<'a> {
             self.advance();
         }
     }
-    fn advance(&mut self) -> &'a Token {
+    fn advance(&mut self) -> &'a Token<'a> {
         if !self.is_at_end() {
             self.current += 1;
         }
@@ -582,13 +576,13 @@ impl<'a> Parser<'a> {
             _ => false,
         }
     }
-    fn peek(&self) -> Result<&'a Token, ParseError<'a>> {
+    fn peek(&self) -> Result<&'a Token<'a>, ParseError<'a>> {
         match self.tokens.get(self.current) {
             None => Err(self.error("No more tokens")),
             Some(x) => Ok(x),
         }
     }
-    fn previous(&self) -> &'a Token {
+    fn previous(&self) -> &'a Token<'a> {
         self.tokens
             .get(if self.current > 0 {
                 self.current - 1

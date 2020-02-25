@@ -12,7 +12,7 @@ pub enum TokenType {
     Less, LessEqual,
 
     // Literals.
-    Identifier(String), String(String), Number(f64),
+    Identifier, String, Number,
 
     // Keywords.
     And, Class, Else, False, Fun, For, If, Nil, Or,
@@ -22,8 +22,8 @@ pub enum TokenType {
 }
 
 #[derive(Debug)]
-pub struct Token {
+pub struct Token<'a> {
     pub tokentype: TokenType,
-    pub lexeme: String,
+    pub lexeme: &'a str,
     pub line: i32,
 }

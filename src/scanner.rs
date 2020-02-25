@@ -31,14 +31,14 @@ struct Scanner<'a> {
     line: i32,
 }
 
-pub fn scan_tokens(source: &str) -> (Vec<Token>, bool) {
+pub fn scan_tokens<'a>(source: &'a str) -> (Vec<Token<'a>>, bool) {
     let mut scanner = Scanner {
         source: source,
         iter: source.char_indices().peekable(),
         start: 0,
         line: 1,
     };
-    let mut tokens: Vec<Token> = Vec::new();
+    let mut tokens: Vec<Token<'a>> = Vec::new();
 
     let mut success = true;
     while let Some((idx, _)) = scanner.iter.peek() {
@@ -57,14 +57,14 @@ pub fn scan_tokens(source: &str) -> (Vec<Token>, bool) {
     }
     tokens.push(Token {
         tokentype: TokenType::EOF,
-        lexeme: String::from(""),
+        lexeme: "",
         line: scanner.line,
     });
     (tokens, success)
 }
 
 impl<'a> Scanner<'a> {
-    fn scan_token(&mut self) -> Result<Option<Token>, Box<dyn Error>> {
+    fn scan_token(&mut self) -> Result<Option<Token<'a>>, Box<dyn Error>> {
         match self.advance()?.1 {
             '(' => Ok(Some(self.token(TokenType::LeftParen))),
             ')' => Ok(Some(self.token(TokenType::RightParen))),
@@ -141,11 +141,11 @@ impl<'a> Scanner<'a> {
             Some((idx, _)) => *idx,
         }
     }
-    fn token(&mut self, token_type: TokenType) -> Token {
+    fn token(&mut self, token_type: TokenType) -> Token<'a> {
         let current = self.current();
         Token {
             tokentype: token_type,
-            lexeme: self.source[self.start..current].to_string(),
+            lexeme: &self.source[self.start..current],
             line: self.line,
         }
     }
@@ -164,7 +164,7 @@ impl<'a> Scanner<'a> {
             message: "Failed to advance".to_string(),
         }))
     }
-    fn string(&mut self) -> Result<Token, Box<dyn Error>> {
+    fn string(&mut self) -> Result<Token<'a>, Box<dyn Error>> {
         while let Some((_, c)) = self.iter.peek() {
             match c {
                 '"' => {
@@ -185,12 +185,9 @@ impl<'a> Scanner<'a> {
                 message: "Unterminated string.".to_string(),
             }));
         }
-        let current = self.current();
-        Ok(self.token(TokenType::String(
-            self.source[self.start + 1..current - 1].to_string(),
-        )))
+        Ok(self.token(TokenType::String))
     }
-    fn number(&mut self) -> Result<Token, Box<dyn Error>> {
+    fn number(&mut self) -> Result<Token<'a>, Box<dyn Error>> {
         while let Some((_, c)) = self.iter.peek() {
             match c {
                 '0'..='9' => {
@@ -226,11 +223,9 @@ impl<'a> Scanner<'a> {
                 }
             }
         }
-
-        let current = self.current();
-        Ok(self.token(TokenType::Number(self.source[self.start..current].parse()?)))
+        Ok(self.token(TokenType::Number))
     }
-    fn identifier(&mut self) -> Result<Token, Box<dyn Error>> {
+    fn identifier(&mut self) -> Result<Token<'a>, Box<dyn Error>> {
         while let Some((_, c)) = self.iter.peek() {
             match c {
                 '0'..='9' | 'a'..='z' | 'A'..='Z' | '_' => {
@@ -243,9 +238,7 @@ impl<'a> Scanner<'a> {
         }
         let current = self.current();
         match KEYWORDS.get(&self.source[self.start..current]) {
-            None => Ok(self.token(TokenType::Identifier(
-                self.source[self.start..current].to_string(),
-            ))),
+            None => Ok(self.token(TokenType::Identifier)),
             Some(x) => Ok(self.token(x.clone())),
         }
     }
@@ -290,15 +283,12 @@ mod scanner_tests {
         let (tokens, success) = scanner::scan_tokens("x = 2");
         assert!(success);
         assert_eq!(tokens.len(), 4);
-        assert!(matches!(tokens[0].tokentype, TokenType::Identifier(_)));
-        if let crate::token::TokenType::Identifier(x) = &tokens[0].tokentype {
-            assert_eq!(x, "x")
-        }
+        assert!(matches!(tokens[0].tokentype, TokenType::Identifier));
+        assert_eq!(tokens[0].lexeme, "x");
         assert!(matches!(tokens[1].tokentype, TokenType::Equal));
-        assert!(matches!(tokens[2].tokentype, TokenType::Number(_)));
-        if let crate::token::TokenType::Number(x) = tokens[2].tokentype {
-            assert_eq!(x, 2.0)
-        }
+        assert_eq!(tokens[1].lexeme, "=");
+        assert!(matches!(tokens[2].tokentype, TokenType::Number));
+        assert_eq!(tokens[2].lexeme, "2");
         assert!(matches!(tokens[3].tokentype, TokenType::EOF));
     }
 
@@ -307,15 +297,12 @@ mod scanner_tests {
         let (tokens, success) = scanner::scan_tokens("1+2");
         assert!(success);
         assert_eq!(tokens.len(), 4);
-        assert!(matches!(tokens[0].tokentype, TokenType::Number(_)));
-        if let crate::token::TokenType::Number(x) = tokens[0].tokentype {
-            assert_eq!(x, 1.0)
-        }
+        assert!(matches!(tokens[0].tokentype, TokenType::Number));
+        assert_eq!(tokens[0].lexeme, "1");
         assert!(matches!(tokens[1].tokentype, TokenType::Plus));
-        assert!(matches!(tokens[2].tokentype, TokenType::Number(_)));
-        if let crate::token::TokenType::Number(x) = tokens[2].tokentype {
-            assert_eq!(x, 2.0)
-        }
+        assert_eq!(tokens[1].lexeme, "+");
+        assert!(matches!(tokens[2].tokentype, TokenType::Number));
+        assert_eq!(tokens[2].lexeme, "2");
         assert!(matches!(tokens[3].tokentype, TokenType::EOF));
     }
 }

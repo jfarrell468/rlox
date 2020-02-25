@@ -20,7 +20,7 @@ pub struct Interpreter<'a> {
 #[derive(Debug)]
 pub struct RuntimeError<'a> {
     message: String,
-    token: Option<&'a Token>,
+    token: Option<&'a Token<'a>>,
 }
 impl<'a> fmt::Display for RuntimeError<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -36,7 +36,7 @@ impl<'a> Error for RuntimeError<'a> {
     }
 }
 impl<'a> RuntimeError<'a> {
-    pub fn new(msg: &str, token: Option<&'a Token>) -> ErrorType<'a> {
+    pub fn new(msg: &str, token: Option<&'a Token<'a>>) -> ErrorType<'a> {
         ErrorType::RuntimeError(RuntimeError {
             message: msg.to_string(),
             token,
@@ -86,8 +86,8 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
     fn visit(&mut self, expr: &Expression<'a>) -> Result<Value<'a>, ErrorType<'a>> {
         match expr {
             Expression::Literal(x) => Ok(match &x.tokentype {
-                TokenType::String(y) => Value::String(y.clone()),
-                TokenType::Number(y) => Value::Number(*y),
+                TokenType::String => Value::String(x.lexeme[1..x.lexeme.len()-1].to_string()),
+                TokenType::Number => Value::Number(x.lexeme.parse().unwrap()),
                 TokenType::False => Value::Boolean(false),
                 TokenType::True => Value::Boolean(true),
                 _ => Value::Nil,
@@ -308,7 +308,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                 let superclass = self.environment.get_at(keyword, scope.unwrap())?;
                 let object = self.environment.get_this_at(scope.unwrap() - 1)?;
                 if let Value::Class(sc) = superclass {
-                    sc.find_method(method.lexeme.as_str()).map_or(
+                    sc.find_method(method.lexeme).map_or(
                         Err(RuntimeError::new(
                             format!("Undefined property '{}'.", method.lexeme).as_str(),
                             Some(keyword),
@@ -319,7 +319,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                             Ok(Value::Function(
                                 f.clone(),
                                 env,
-                                method.lexeme.as_str() == "init",
+                                method.lexeme == "init",
                             ))
                         },
                     )
@@ -349,7 +349,7 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
                     None => Value::Nil,
                     Some(x) => self.evaluate(x)?,
                 };
-                self.environment.define(name.lexeme.clone(), val.clone())?;
+                self.environment.define(name.lexeme.to_string(), val.clone())?;
             }
             Statement::Block(stmts) => {
                 self.execute_block(stmts, self.environment.new_child())?;
@@ -375,7 +375,7 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
             },
             Statement::Function(function) => {
                 self.environment.define(
-                    function.name().lexeme.clone(),
+                    function.name().lexeme.to_string(),
                     Value::Function(function.clone(), self.environment.clone(), false),
                 )?;
             }
@@ -413,7 +413,7 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
                         ));
                     }
                 }
-                self.environment.define(name.lexeme.clone(), Value::Nil)?;
+                self.environment.define(name.lexeme.to_string(), Value::Nil)?;
                 let mut environment = self.environment.clone();
                 if let Some(superclass) = &superclass_class {
                     environment = environment.new_child();
@@ -422,7 +422,7 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
                 let mut methods: BTreeMap<String, LoxFunction> = BTreeMap::new();
                 for method in method_statements {
                     if let Statement::Function(x) = method {
-                        methods.insert(x.name().lexeme.clone(), x.clone());
+                        methods.insert(x.name().lexeme.to_string(), x.clone());
                     }
                 }
                 let class = Value::Class(Class::new(

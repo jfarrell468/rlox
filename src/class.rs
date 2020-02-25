@@ -13,7 +13,7 @@ pub struct Class<'a> {
 
 #[derive(Debug)]
 struct ClassImpl<'a> {
-    name: &'a Token,
+    name: &'a Token<'a>,
     superclass: Option<Class<'a>>,
     methods: BTreeMap<String, LoxFunction<'a>>,
     environment: Environment<'a>,
