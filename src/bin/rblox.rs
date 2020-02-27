@@ -3,6 +3,8 @@ use rlox::scanner;
 use rlox::token::{Token, TokenType};
 use std::convert::{TryFrom, TryInto};
 use std::env;
+use std::fmt;
+use std::fmt::Formatter;
 use std::fs;
 use std::io::{self, Write};
 use strum_macros::Display;
@@ -11,10 +13,17 @@ use strum_macros::Display;
 #[repr(u8)]
 enum OpCode {
     Constant,
+    Nil,
+    True,
+    False,
+    Equal,
+    Greater,
+    Less,
     Add,
     Subtract,
     Multiply,
     Divide,
+    Not,
     Negate,
     Return,
 }
@@ -36,7 +45,54 @@ impl OpCode {
     }
 }
 
-type Value = f64;
+#[derive(Clone, Debug)]
+enum Value {
+    Boolean(bool),
+    Nil,
+    Number(f64),
+}
+
+impl<'a> fmt::Display for Value {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Nil => write!(f, "nil"),
+            Value::Boolean(x) => write!(f, "{}", x),
+            Value::Number(x) => {
+                if x.is_sign_negative() {
+                    write!(f, "-{}", -x)
+                } else {
+                    write!(f, "{}", x)
+                }
+            }
+        }
+    }
+}
+
+impl Value {
+    fn is_falsey(&self) -> bool {
+        match self {
+            Value::Boolean(x) => !*x,
+            Value::Nil => true,
+            Value::Number(_) => false,
+        }
+    }
+    fn equals(&self, other: &Value) -> bool {
+        match self {
+            Value::Boolean(a) => match other {
+                Value::Boolean(b) => a == b,
+                _ => false,
+            },
+            Value::Nil => match other {
+                Value::Nil => true,
+                _ => false,
+            },
+            Value::Number(a) => match other {
+                Value::Number(b) => a == b,
+                _ => false,
+            },
+        }
+    }
+}
 
 struct Chunk {
     pub code: Vec<u8>,
@@ -77,13 +133,8 @@ impl Chunk {
         }
         let instruction = OpCode::try_from(self.code[offset]).unwrap();
         match instruction {
-            OpCode::Return
-            | OpCode::Add
-            | OpCode::Subtract
-            | OpCode::Multiply
-            | OpCode::Divide
-            | OpCode::Negate => instruction.simple_instruction(offset),
             OpCode::Constant => instruction.constant_instruction(self, offset),
+            _ => instruction.simple_instruction(offset),
         }
     }
 }
@@ -102,10 +153,20 @@ enum InterpretResult {
 }
 
 macro_rules! binary_op {
-    ($stack:expr, $op:tt) => {
-        let b = $stack.pop().unwrap();
-        let a = $stack.pop().unwrap();
-        $stack.push(a $op b);
+    ($self:expr, $valtype:tt, $op:tt) => {
+        if let Value::Number(b) = $self.peek(0) {
+            if let Value::Number(a) = $self.peek(1) {
+                $self.stack.pop().unwrap();
+                $self.stack.pop().unwrap();
+                $self.stack.push(Value::$valtype(a $op b));
+            } else {
+                $self.runtime_error("Operands must be numbers.");
+                return InterpretResult::RuntimeError;
+            }
+        } else {
+            $self.runtime_error("Operands must be numbers.");
+            return InterpretResult::RuntimeError;
+        }
     }
 }
 
@@ -131,24 +192,54 @@ impl<'a> Vm<'a> {
             match instruction {
                 OpCode::Constant => {
                     let constant = self.read_constant();
-                    self.stack.push(constant);
+                    self.stack.push(constant.clone());
+                }
+                OpCode::Nil => {
+                    self.stack.push(Value::Nil);
+                }
+                OpCode::True => {
+                    self.stack.push(Value::Boolean(true));
+                }
+                OpCode::False => {
+                    self.stack.push(Value::Boolean(false));
+                }
+                OpCode::Equal => {
+                    let b = self.stack.pop().unwrap();
+                    let a = self.stack.pop().unwrap();
+                    self.stack.push(Value::Boolean(a.equals(&b)));
+                }
+                OpCode::Greater => {
+                    binary_op!(self, Boolean, >);
+                }
+                OpCode::Less => {
+                    binary_op!(self, Boolean, <);
                 }
                 OpCode::Add => {
-                    binary_op!(self.stack, +);
+                    binary_op!(self, Number, +);
                 }
                 OpCode::Subtract => {
-                    binary_op!(self.stack, -);
+                    binary_op!(self, Number, -);
                 }
                 OpCode::Multiply => {
-                    binary_op!(self.stack, *);
+                    binary_op!(self, Number, *);
                 }
                 OpCode::Divide => {
-                    binary_op!(self.stack, /);
+                    binary_op!(self, Number, /);
                 }
-                OpCode::Negate => {
-                    let val = -self.stack.pop().unwrap();
-                    self.stack.push(val);
+                OpCode::Not => {
+                    let val = self.stack.pop().unwrap().is_falsey();
+                    self.stack.push(Value::Boolean(val));
                 }
+                OpCode::Negate => match self.peek(0) {
+                    Value::Number(x) => {
+                        self.stack.pop().unwrap();
+                        self.stack.push(Value::Number(-x));
+                    }
+                    _ => {
+                        self.runtime_error("Operand must be a number.");
+                        return InterpretResult::RuntimeError;
+                    }
+                },
                 OpCode::Return => {
                     println!("{}", self.stack.pop().unwrap());
                     return InterpretResult::Ok;
@@ -160,7 +251,29 @@ impl<'a> Vm<'a> {
         *self.ip.as_mut().map(|x| x.next()).unwrap().unwrap().1
     }
     fn read_constant(&mut self) -> Value {
-        self.chunk.unwrap().constant[self.read_byte() as usize]
+        self.chunk
+            .unwrap()
+            .constant
+            .get(self.read_byte() as usize)
+            .unwrap()
+            .clone()
+    }
+    fn peek(&self, distance: usize) -> Value {
+        self.stack
+            .get(self.stack.len() - 1 - distance)
+            .unwrap()
+            .clone()
+    }
+    fn current_line(&mut self) -> usize {
+        self.ip.as_mut().map_or(0, |x| x.peek().map_or(0, |x| x.0))
+    }
+    fn runtime_error(&mut self, msg: &str) {
+        eprintln!("{}", msg);
+        eprintln!("[line {}] in script", self.current_line());
+        self.reset_stack();
+    }
+    fn reset_stack(&mut self) {
+        self.stack.clear();
     }
 }
 
@@ -300,31 +413,31 @@ static RULES : &[ParseRule] = mkrules!(
     None,     None,    None;       // Semicolon
     None,     binary,  Factor;     // Slash
     None,     binary,  Factor;     // Star
-    None,     None,    None;       // Bang
-    None,     None,    None;       // BangEqual
+    unary,    None,    None;       // Bang
+    None,     binary,  Equality;   // BangEqual
     None,     None,    None;       // Equal
-    None,     None,    None;       // EqualEqual
-    None,     None,    None;       // Greater
-    None,     None,    None;       // GreaterEqual
-    None,     None,    None;       // Less
-    None,     None,    None;       // LessEqual
+    None,     binary,  Equality;   // EqualEqual
+    None,     binary,  Comparison; // Greater
+    None,     binary,  Comparison; // GreaterEqual
+    None,     binary,  Comparison; // Less
+    None,     binary,  Comparison; // LessEqual
     None,     None,    None;       // Identifier
     None,     None,    None;       // String
     number,   None,    None;       // Number
     None,     None,    None;       // And
     None,     None,    None;       // Class
     None,     None,    None;       // Else
-    None,     None,    None;       // False
+    literal,  None,    None;       // False
     None,     None,    None;       // For
     None,     None,    None;       // Fun
     None,     None,    None;       // If
-    None,     None,    None;       // Nil
+    literal,  None,    None;       // Nil
     None,     None,    None;       // Or
     None,     None,    None;       // Print
     None,     None,    None;       // Return
     None,     None,    None;       // Super
     None,     None,    None;       // This
-    None,     None,    None;       // True
+    literal,  None,    None;       // True
     None,     None,    None;       // Var
     None,     None,    None;       // While
     None,     None,    None        // EOF
@@ -389,7 +502,7 @@ impl<'a> Parser<'a> {
         self.advance();
         self.expression();
         consume!(self, TokenType::EOF, "Expect end of expression.");
-        self.emite_byte(OpCode::Return as u8);
+        self.emit_byte(OpCode::Return as u8);
         if self.error {
             self.chunk.as_ref().map(|c| c.disassemble("code"));
             Err(InterpretResult::CompileError)
@@ -397,22 +510,22 @@ impl<'a> Parser<'a> {
             Ok(self.chunk.take().unwrap())
         }
     }
-    fn emite_byte(&mut self, byte: u8) {
+    fn emit_byte(&mut self, byte: u8) {
         self.chunk
             .as_mut()
             .unwrap()
             .write(byte, self.previous.as_ref().unwrap().line as usize);
     }
     fn emit_bytes(&mut self, byte: u8, byte2: u8) {
-        self.emite_byte(byte);
-        self.emite_byte(byte2);
+        self.emit_byte(byte);
+        self.emit_byte(byte2);
     }
     fn expression(&mut self) {
         self.parse_precedence(ParsePrecedence::Assignment)
     }
     fn number(&mut self) {
-        let value: Value = self.previous.as_ref().unwrap().lexeme.parse().unwrap();
-        self.emit_constant(value);
+        let value: f64 = self.previous.as_ref().unwrap().lexeme.parse().unwrap();
+        self.emit_constant(Value::Number(value));
     }
     fn emit_constant(&mut self, value: Value) {
         let constant = self.make_constant(value);
@@ -434,8 +547,10 @@ impl<'a> Parser<'a> {
     fn unary(&mut self) {
         let prev = self.previous.take().unwrap();
         self.parse_precedence(ParsePrecedence::Unary);
-        if let TokenType::Minus = prev.tokentype {
-            self.emite_byte(OpCode::Negate as u8);
+        match prev.tokentype {
+            TokenType::Bang => self.emit_byte(OpCode::Not as u8),
+            TokenType::Minus => self.emit_byte(OpCode::Negate as u8),
+            _ => (),
         }
     }
     fn binary(&mut self) {
@@ -443,10 +558,24 @@ impl<'a> Parser<'a> {
         let rule = ParseRule::get_rule(prev.tokentype);
         self.parse_precedence(ParsePrecedence::try_from(rule.precedence as u8 + 1).unwrap());
         match prev.tokentype {
-            TokenType::Plus => self.emite_byte(OpCode::Add as u8),
-            TokenType::Minus => self.emite_byte(OpCode::Subtract as u8),
-            TokenType::Star => self.emite_byte(OpCode::Multiply as u8),
-            TokenType::Slash => self.emite_byte(OpCode::Divide as u8),
+            TokenType::Plus => self.emit_byte(OpCode::Add as u8),
+            TokenType::Minus => self.emit_byte(OpCode::Subtract as u8),
+            TokenType::Star => self.emit_byte(OpCode::Multiply as u8),
+            TokenType::Slash => self.emit_byte(OpCode::Divide as u8),
+            TokenType::BangEqual => self.emit_bytes(OpCode::Equal as u8, OpCode::Not as u8),
+            TokenType::EqualEqual => self.emit_byte(OpCode::Equal as u8),
+            TokenType::Greater => self.emit_byte(OpCode::Greater as u8),
+            TokenType::GreaterEqual => self.emit_bytes(OpCode::Less as u8, OpCode::Not as u8),
+            TokenType::Less => self.emit_byte(OpCode::Less as u8),
+            TokenType::LessEqual => self.emit_bytes(OpCode::Greater as u8, OpCode::Not as u8),
+            _ => (),
+        }
+    }
+    fn literal(&mut self) {
+        match self.previous.as_ref().unwrap().tokentype {
+            TokenType::False => self.emit_byte(OpCode::False as u8),
+            TokenType::Nil => self.emit_byte(OpCode::Nil as u8),
+            TokenType::True => self.emit_byte(OpCode::True as u8),
             _ => (),
         }
     }
