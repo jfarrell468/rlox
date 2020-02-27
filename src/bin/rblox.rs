@@ -1,6 +1,7 @@
 use num_enum::TryFromPrimitive;
 use rlox::scanner;
 use rlox::token::{Token, TokenType};
+use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
 use std::env;
 use std::fmt;
@@ -16,6 +17,10 @@ enum OpCode {
     Nil,
     True,
     False,
+    Pop,
+    GetGlobal,
+    DefineGlobal,
+    SetGlobal,
     Equal,
     Greater,
     Less,
@@ -25,6 +30,7 @@ enum OpCode {
     Divide,
     Not,
     Negate,
+    Print,
     Return,
 }
 
@@ -50,7 +56,7 @@ enum Value {
     Boolean(bool),
     Nil,
     Number(f64),
-    String(String)
+    String(String),
 }
 
 impl<'a> fmt::Display for Value {
@@ -76,7 +82,7 @@ impl Value {
             Value::Boolean(x) => !*x,
             Value::Nil => true,
             Value::Number(_) => false,
-            Value::String(_) => false
+            Value::String(_) => false,
         }
     }
     fn equals(&self, other: &Value) -> bool {
@@ -140,7 +146,9 @@ impl Chunk {
         }
         let instruction = OpCode::try_from(self.code[offset]).unwrap();
         match instruction {
-            OpCode::Constant => instruction.constant_instruction(self, offset),
+            OpCode::Constant | OpCode::DefineGlobal | OpCode::SetGlobal => {
+                instruction.constant_instruction(self, offset)
+            }
             _ => instruction.simple_instruction(offset),
         }
     }
@@ -151,6 +159,7 @@ struct Vm<'a> {
     pub ip: Option<std::iter::Peekable<std::iter::Enumerate<std::slice::Iter<'a, u8>>>>,
     pub stack: Vec<Value>,
     pub trace_execution: bool,
+    pub globals: BTreeMap<String, Value>,
 }
 
 enum InterpretResult {
@@ -210,6 +219,36 @@ impl<'a> Vm<'a> {
                 OpCode::False => {
                     self.stack.push(Value::Boolean(false));
                 }
+                OpCode::Pop => {
+                    self.stack.pop().unwrap();
+                }
+                OpCode::GetGlobal => {
+                    if let Value::String(s) = self.read_constant() {
+                        match self.globals.get(&s) {
+                            None => {
+                                self.runtime_error(format!("Undefined variable '{}'.", s).as_str());
+                                return InterpretResult::RuntimeError;
+                            }
+                            Some(v) => {
+                                self.stack.push(v.clone());
+                            }
+                        }
+                    }
+                }
+                OpCode::DefineGlobal => {
+                    if let Value::String(s) = self.read_constant() {
+                        self.globals.insert(s, self.stack.pop().unwrap());
+                    }
+                }
+                OpCode::SetGlobal => {
+                    if let Value::String(s) = self.read_constant() {
+                        if let None = self.globals.insert(s.clone(), self.peek(0)) {
+                            self.globals.remove(&s).unwrap();
+                            self.runtime_error(format!("Undefined variable '{}'.", s).as_str());
+                            return InterpretResult::RuntimeError;
+                        }
+                    }
+                }
                 OpCode::Equal => {
                     let b = self.stack.pop().unwrap();
                     let a = self.stack.pop().unwrap();
@@ -231,7 +270,7 @@ impl<'a> Vm<'a> {
                                 self.stack.pop();
                                 a.push_str(b.as_str());
                                 self.stack.push(Value::String(a));
-                            },
+                            }
                             _ => {
                                 self.runtime_error("Operands must be two numbers or two strings.");
                                 return InterpretResult::RuntimeError;
@@ -241,8 +280,8 @@ impl<'a> Vm<'a> {
                             Value::Number(b) => {
                                 self.stack.pop();
                                 self.stack.pop();
-                                self.stack.push(Value::Number(a+b));
-                            },
+                                self.stack.push(Value::Number(a + b));
+                            }
                             _ => {
                                 self.runtime_error("Operands must be two numbers or two strings.");
                                 return InterpretResult::RuntimeError;
@@ -277,8 +316,10 @@ impl<'a> Vm<'a> {
                         return InterpretResult::RuntimeError;
                     }
                 },
-                OpCode::Return => {
+                OpCode::Print => {
                     println!("{}", self.stack.pop().unwrap());
+                }
+                OpCode::Return => {
                     return InterpretResult::Ok;
                 }
             }
@@ -302,7 +343,8 @@ impl<'a> Vm<'a> {
             .clone()
     }
     fn current_line(&mut self) -> usize {
-        self.ip.as_mut().map_or(0, |x| x.peek().map_or(0, |x| x.0))
+        self.chunk.as_ref().unwrap().line
+            [self.ip.as_mut().map_or(0, |x| x.peek().map_or(0, |x| x.0))]
     }
     fn runtime_error(&mut self, msg: &str) {
         eprintln!("{}", msg);
@@ -358,14 +400,14 @@ fn interpret(source: &str) -> InterpretResult {
                 ip: None,
                 stack: Vec::new(),
                 trace_execution: false,
+                globals: BTreeMap::new(),
             };
-            vm.interpret(&chunk);
+            return vm.interpret(&chunk);
         }
         Err(e) => {
             return e;
         }
     }
-    InterpretResult::Ok
 }
 
 struct Parser<'a> {
@@ -375,13 +417,25 @@ struct Parser<'a> {
     previous: Option<Token<'a>>,
     error: bool,
     panic_mode: bool,
+    disassemble_on_error: bool,
 }
 
 macro_rules! consume {
-    ($self:expr, $token_type:pat, $error:expr) => {
+    ($self:expr, $token_type:ident, $error:expr) => {
         match $self.current.as_ref().unwrap().tokentype {
-            $token_type => $self.advance(),
+            TokenType::$token_type => $self.advance(),
             _ => $self.error_at_current($error),
+        }
+    };
+}
+
+macro_rules! advance_if {
+    ($self:expr, $tt:tt) => {
+        if let TokenType::$tt = $self.current.as_ref().unwrap().tokentype {
+            $self.advance();
+            true
+        } else {
+            false
         }
     };
 }
@@ -403,8 +457,8 @@ enum ParsePrecedence {
 }
 
 struct ParseRule {
-    prefix: Option<fn(&mut Parser) -> ()>,
-    infix: Option<fn(&mut Parser) -> ()>,
+    prefix: Option<fn(&mut Parser, bool) -> ()>,
+    infix: Option<fn(&mut Parser, bool) -> ()>,
     precedence: ParsePrecedence,
 }
 
@@ -419,7 +473,7 @@ macro_rules! lambdafy {
         None
     };
     ($method:ident) => {
-        Some(|p: &mut Parser| p.$method())
+        Some(|p: &mut Parser, ca: bool| p.$method(ca))
     };
 }
 
@@ -458,7 +512,7 @@ static RULES : &[ParseRule] = mkrules!(
     None,     binary,  Comparison; // GreaterEqual
     None,     binary,  Comparison; // Less
     None,     binary,  Comparison; // LessEqual
-    None,     None,    None;       // Identifier
+    variable, None,    None;       // Identifier
     string,   None,    None;       // String
     number,   None,    None;       // Number
     None,     None,    None;       // And
@@ -489,6 +543,7 @@ impl<'a> Parser<'a> {
             previous: None,
             error: false,
             panic_mode: false,
+            disassemble_on_error: false,
         }
     }
     fn print_error(token: &Token<'a>, message: &str) {
@@ -528,7 +583,13 @@ impl<'a> Parser<'a> {
                     break;
                 }
                 Err(e) => {
-                    self.error_at_current(format!("{}", e).as_str());
+                    if self.current.is_some() {
+                        self.error_at_current(format!("{}", e).as_str());
+                    } else if !self.panic_mode {
+                        self.panic_mode = true;
+                        self.error = true;
+                        eprintln!("{}", e);
+                    }
                 }
             }
         }
@@ -537,11 +598,14 @@ impl<'a> Parser<'a> {
         self.chunk = Some(Chunk::new());
         self.scanner = scanner::Scanner::new(source);
         self.advance();
-        self.expression();
-        consume!(self, TokenType::EOF, "Expect end of expression.");
+        while !advance_if!(self, EOF) {
+            self.declaration();
+        }
         self.emit_byte(OpCode::Return as u8);
         if self.error {
-            self.chunk.as_ref().map(|c| c.disassemble("code"));
+            if self.disassemble_on_error {
+                self.chunk.as_ref().map(|c| c.disassemble("code"));
+            }
             Err(InterpretResult::CompileError)
         } else {
             Ok(self.chunk.take().unwrap())
@@ -560,7 +624,54 @@ impl<'a> Parser<'a> {
     fn expression(&mut self) {
         self.parse_precedence(ParsePrecedence::Assignment)
     }
-    fn number(&mut self) {
+    fn declaration(&mut self) {
+        if advance_if!(self, Var) {
+            self.var_declaration();
+        } else {
+            self.statement();
+        }
+        if self.panic_mode {
+            self.synchronize();
+        }
+    }
+    fn statement(&mut self) {
+        if advance_if!(self, Print) {
+            self.print_statement();
+        } else {
+            self.expression_statement();
+        }
+    }
+    fn print_statement(&mut self) {
+        self.expression();
+        consume!(self, Semicolon, "Expect ';' after value.");
+        self.emit_byte(OpCode::Print as u8)
+    }
+    fn expression_statement(&mut self) {
+        self.expression();
+        consume!(self, Semicolon, "Expect ';' after value.");
+        self.emit_byte(OpCode::Pop as u8)
+    }
+    fn var_declaration(&mut self) {
+        let global = self.parse_variable("Expect variable name.");
+        if advance_if!(self, Equal) {
+            self.expression();
+        } else {
+            self.emit_byte(OpCode::Nil as u8);
+        }
+        consume!(self, Semicolon, "Expect ';' after variable declaration.");
+        self.define_variable(global);
+    }
+    fn parse_variable(&mut self, msg: &str) -> u8 {
+        consume!(self, Identifier, msg);
+        self.identifier_constant(self.previous.as_ref().unwrap().lexeme)
+    }
+    fn identifier_constant(&mut self, name: &str) -> u8 {
+        self.make_constant(Value::String(name.to_string()))
+    }
+    fn define_variable(&mut self, global: u8) {
+        self.emit_bytes(OpCode::DefineGlobal as u8, global);
+    }
+    fn number(&mut self, _: bool) {
         let value: f64 = self.previous.as_ref().unwrap().lexeme.parse().unwrap();
         self.emit_constant(Value::Number(value));
     }
@@ -577,11 +688,11 @@ impl<'a> Parser<'a> {
             }
         }
     }
-    fn grouping(&mut self) {
+    fn grouping(&mut self, _: bool) {
         self.expression();
-        consume!(self, TokenType::RightParen, "Expect ')' after expression.");
+        consume!(self, RightParen, "Expect ')' after expression.");
     }
-    fn unary(&mut self) {
+    fn unary(&mut self, _: bool) {
         let prev = self.previous.take().unwrap();
         self.parse_precedence(ParsePrecedence::Unary);
         match prev.tokentype {
@@ -590,7 +701,7 @@ impl<'a> Parser<'a> {
             _ => (),
         }
     }
-    fn binary(&mut self) {
+    fn binary(&mut self, _: bool) {
         let prev = self.previous.take().unwrap();
         let rule = ParseRule::get_rule(prev.tokentype);
         self.parse_precedence(ParsePrecedence::try_from(rule.precedence as u8 + 1).unwrap());
@@ -608,7 +719,7 @@ impl<'a> Parser<'a> {
             _ => (),
         }
     }
-    fn literal(&mut self) {
+    fn literal(&mut self, _: bool) {
         match self.previous.as_ref().unwrap().tokentype {
             TokenType::False => self.emit_byte(OpCode::False as u8),
             TokenType::Nil => self.emit_byte(OpCode::Nil as u8),
@@ -616,17 +727,30 @@ impl<'a> Parser<'a> {
             _ => (),
         }
     }
-    fn string(&mut self) {
+    fn string(&mut self, _: bool) {
         let lexeme = self.previous.as_ref().unwrap().lexeme;
-        self.emit_constant(Value::String(lexeme[1..lexeme.len()-1].to_string()));
+        self.emit_constant(Value::String(lexeme[1..lexeme.len() - 1].to_string()));
+    }
+    fn variable(&mut self, can_assign: bool) {
+        self.named_variable(self.previous.as_ref().unwrap().lexeme, can_assign)
+    }
+    fn named_variable(&mut self, name: &str, can_assign: bool) {
+        let arg = self.identifier_constant(name);
+        if can_assign && advance_if!(self, Equal) {
+            self.expression();
+            self.emit_bytes(OpCode::SetGlobal as u8, arg);
+        } else {
+            self.emit_bytes(OpCode::GetGlobal as u8, arg);
+        }
     }
     fn parse_precedence(&mut self, prec: ParsePrecedence) {
         self.advance();
-        let prefix_rule = ParseRule::get_rule(self.previous.as_ref().unwrap().tokentype).prefix;
-        match prefix_rule {
-            None => self.error("Expect expression"),
+        let rule = ParseRule::get_rule(self.previous.as_ref().unwrap().tokentype);
+        match rule.prefix {
+            None => self.error("Expect expression."),
             Some(f) => {
-                f(self);
+                let can_assign = prec <= ParsePrecedence::Assignment;
+                f(self, can_assign);
 
                 while prec
                     <= ParseRule::get_rule(self.current.as_ref().unwrap().tokentype).precedence
@@ -634,9 +758,36 @@ impl<'a> Parser<'a> {
                     self.advance();
                     let infix_rule =
                         ParseRule::get_rule(self.previous.as_ref().unwrap().tokentype).infix;
-                    infix_rule.map(|f| f(self));
+                    infix_rule.map(|f| f(self, can_assign));
+                }
+
+                if can_assign && advance_if!(self, Equal) {
+                    self.error("Invalid assignment target.");
                 }
             }
+        }
+    }
+    fn synchronize(&mut self) {
+        self.panic_mode = false;
+        loop {
+            if let TokenType::EOF = self.current.as_ref().unwrap().tokentype {
+                return;
+            }
+            if let TokenType::Semicolon = self.previous.as_ref().unwrap().tokentype {
+                return;
+            }
+            match self.current.as_ref().unwrap().tokentype {
+                TokenType::Class
+                | TokenType::Fun
+                | TokenType::Var
+                | TokenType::For
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return => return,
+                _ => (),
+            }
+            self.advance();
         }
     }
 }
