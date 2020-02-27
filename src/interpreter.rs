@@ -86,7 +86,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
     fn visit(&mut self, expr: &Expression<'a>) -> Result<Value<'a>, ErrorType<'a>> {
         match expr {
             Expression::Literal(x) => Ok(match &x.tokentype {
-                TokenType::String => Value::String(x.lexeme[1..x.lexeme.len()-1].to_string()),
+                TokenType::String => Value::String(x.lexeme[1..x.lexeme.len() - 1].to_string()),
                 TokenType::Number => Value::Number(x.lexeme.parse().unwrap()),
                 TokenType::False => Value::Boolean(false),
                 TokenType::True => Value::Boolean(true),
@@ -316,11 +316,7 @@ impl<'a> Visitor<Expression<'a>, Result<Value<'a>, ErrorType<'a>>> for Interpret
                         |(f, e)| {
                             let mut env = e.new_child();
                             env.define("this".to_string(), object).unwrap();
-                            Ok(Value::Function(
-                                f.clone(),
-                                env,
-                                method.lexeme == "init",
-                            ))
+                            Ok(Value::Function(f.clone(), env, method.lexeme == "init"))
                         },
                     )
                 } else {
@@ -349,7 +345,8 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
                     None => Value::Nil,
                     Some(x) => self.evaluate(x)?,
                 };
-                self.environment.define(name.lexeme.to_string(), val.clone())?;
+                self.environment
+                    .define(name.lexeme.to_string(), val.clone())?;
             }
             Statement::Block(stmts) => {
                 self.execute_block(stmts, self.environment.new_child())?;
@@ -413,7 +410,8 @@ impl<'a> Visitor<Statement<'a>, Result<Value<'a>, ErrorType<'a>>> for Interprete
                         ));
                     }
                 }
-                self.environment.define(name.lexeme.to_string(), Value::Nil)?;
+                self.environment
+                    .define(name.lexeme.to_string(), Value::Nil)?;
                 let mut environment = self.environment.clone();
                 if let Some(superclass) = &superclass_class {
                     environment = environment.new_child();

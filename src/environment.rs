@@ -54,7 +54,11 @@ impl<'a> Environment<'a> {
             },
         )
     }
-    pub fn get_at(&self, token: &'a Token<'a>, distance: usize) -> Result<Value<'a>, ErrorType<'a>> {
+    pub fn get_at(
+        &self,
+        token: &'a Token<'a>,
+        distance: usize,
+    ) -> Result<Value<'a>, ErrorType<'a>> {
         self.ancestor(distance).get_direct(token)
     }
     pub fn get_direct(&self, token: &'a Token<'a>) -> Result<Value<'a>, ErrorType<'a>> {
