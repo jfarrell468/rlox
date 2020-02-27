@@ -24,7 +24,7 @@ impl Error for ScanError {
 }
 
 // Note: current becomes self.iter.peek()?.0
-struct Scanner<'a> {
+pub struct Scanner<'a> {
     source: &'a str,
     iter: Peekable<CharIndices<'a>>,
     start: usize,
@@ -32,12 +32,7 @@ struct Scanner<'a> {
 }
 
 pub fn scan_tokens<'a>(source: &'a str) -> (Vec<Token<'a>>, bool) {
-    let mut scanner = Scanner {
-        source: source,
-        iter: source.char_indices().peekable(),
-        start: 0,
-        line: 1,
-    };
+    let mut scanner = Scanner::new(source);
     let mut tokens: Vec<Token<'a>> = Vec::new();
 
     let mut success = true;
@@ -64,6 +59,27 @@ pub fn scan_tokens<'a>(source: &'a str) -> (Vec<Token<'a>>, bool) {
 }
 
 impl<'a> Scanner<'a> {
+    pub fn new(source: &'a str) -> Scanner {
+        Scanner {
+            source: source,
+            iter: source.char_indices().peekable(),
+            start: 0,
+            line: 1,
+        }
+    }
+    pub fn scan_token_for_rblox(&mut self) -> Result<Token<'a>, Box<dyn Error>> {
+        while let Some((idx, _)) = self.iter.peek() {
+            self.start = *idx;
+            if let Some(token) = self.scan_token()? {
+                return Ok(token);
+            }
+        }
+        Ok(Token {
+            tokentype: TokenType::EOF,
+            lexeme: "",
+            line: self.line,
+        })
+    }
     fn scan_token(&mut self) -> Result<Option<Token<'a>>, Box<dyn Error>> {
         match self.advance()?.1 {
             '(' => Ok(Some(self.token(TokenType::LeftParen))),

@@ -1,5 +1,8 @@
+use strum_macros::Display;
+
 #[rustfmt::skip]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Display, Copy)]
+#[repr(u8)]
 pub enum TokenType {
     // Single-character tokens.
     LeftParen, RightParen, LeftBrace, RightBrace,

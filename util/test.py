@@ -49,16 +49,12 @@ def c_interpreter(name, tests):
   else:
     path = 'build/' + name
 
-  INTERPRETERS[name] = Interpreter(name, 'c', [path], tests)
+  INTERPRETERS[name] = Interpreter(name, 'c',
+      ['/usr/local/google/home/jamesfarrell/IdeaProjects/rlox/target/debug/rblox'], tests)
   C_SUITES.append(name)
 
 
 def java_interpreter(name, tests):
-  if name == 'jlox':
-    dir = 'build/java'
-  else:
-    dir = 'build/gen/' + name
-
   INTERPRETERS[name] = Interpreter(name, 'java',
       ['/usr/local/google/home/jamesfarrell/IdeaProjects/rlox/target/debug/rlox'], tests)
   JAVA_SUITES.append(name)
