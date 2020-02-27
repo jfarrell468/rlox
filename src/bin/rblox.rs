@@ -50,6 +50,7 @@ enum Value {
     Boolean(bool),
     Nil,
     Number(f64),
+    String(String)
 }
 
 impl<'a> fmt::Display for Value {
@@ -64,6 +65,7 @@ impl<'a> fmt::Display for Value {
                     write!(f, "{}", x)
                 }
             }
+            Value::String(x) => write!(f, "{}", x),
         }
     }
 }
@@ -74,6 +76,7 @@ impl Value {
             Value::Boolean(x) => !*x,
             Value::Nil => true,
             Value::Number(_) => false,
+            Value::String(_) => false
         }
     }
     fn equals(&self, other: &Value) -> bool {
@@ -88,6 +91,10 @@ impl Value {
             },
             Value::Number(a) => match other {
                 Value::Number(b) => a == b,
+                _ => false,
+            },
+            Value::String(a) => match other {
+                Value::String(b) => a == b,
                 _ => false,
             },
         }
@@ -215,7 +222,37 @@ impl<'a> Vm<'a> {
                     binary_op!(self, Boolean, <);
                 }
                 OpCode::Add => {
-                    binary_op!(self, Number, +);
+                    let bv = self.peek(0);
+                    let av = self.peek(1);
+                    match av {
+                        Value::String(mut a) => match bv {
+                            Value::String(b) => {
+                                self.stack.pop();
+                                self.stack.pop();
+                                a.push_str(b.as_str());
+                                self.stack.push(Value::String(a));
+                            },
+                            _ => {
+                                self.runtime_error("Operands must be two numbers or two strings.");
+                                return InterpretResult::RuntimeError;
+                            }
+                        },
+                        Value::Number(a) => match bv {
+                            Value::Number(b) => {
+                                self.stack.pop();
+                                self.stack.pop();
+                                self.stack.push(Value::Number(a+b));
+                            },
+                            _ => {
+                                self.runtime_error("Operands must be two numbers or two strings.");
+                                return InterpretResult::RuntimeError;
+                            }
+                        },
+                        _ => {
+                            self.runtime_error("Operands must be two numbers or two strings.");
+                            return InterpretResult::RuntimeError;
+                        }
+                    }
                 }
                 OpCode::Subtract => {
                     binary_op!(self, Number, -);
@@ -422,7 +459,7 @@ static RULES : &[ParseRule] = mkrules!(
     None,     binary,  Comparison; // Less
     None,     binary,  Comparison; // LessEqual
     None,     None,    None;       // Identifier
-    None,     None,    None;       // String
+    string,   None,    None;       // String
     number,   None,    None;       // Number
     None,     None,    None;       // And
     None,     None,    None;       // Class
@@ -578,6 +615,10 @@ impl<'a> Parser<'a> {
             TokenType::True => self.emit_byte(OpCode::True as u8),
             _ => (),
         }
+    }
+    fn string(&mut self) {
+        let lexeme = self.previous.as_ref().unwrap().lexeme;
+        self.emit_constant(Value::String(lexeme[1..lexeme.len()-1].to_string()));
     }
     fn parse_precedence(&mut self, prec: ParsePrecedence) {
         self.advance();
