@@ -73,6 +73,12 @@ impl OpCode {
     }
 }
 
+struct Function {
+    arity: usize,
+    chunk: Chunk,
+    name: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 enum Value {
     Boolean(bool),
@@ -453,8 +459,7 @@ fn run_prompt(trace: bool) {
 }
 
 fn interpret(source: &str, trace: bool) -> InterpretResult {
-    let mut parser = Parser::new();
-    match parser.compile(source) {
+    match Parser::compile(source) {
         Ok(chunk) => {
             let mut vm = Vm {
                 chunk: None,
@@ -472,8 +477,7 @@ fn interpret(source: &str, trace: bool) -> InterpretResult {
 }
 
 struct Parser<'a> {
-    compiler: Option<Compiler<'a>>,
-    chunk: Option<Chunk>,
+    compiler: Compiler<'a>,
     scanner: scanner::Scanner<'a>,
     current: Option<Token<'a>>,
     previous: Option<Token<'a>>,
@@ -482,7 +486,14 @@ struct Parser<'a> {
     disassemble_on_error: bool,
 }
 
+enum FunctionType {
+    Function,
+    Script,
+}
+
 struct Compiler<'a> {
+    function: Function,
+    function_type: FunctionType,
     locals: Vec<Local<'a>>,
     scope_depth: usize,
 }
@@ -490,6 +501,12 @@ struct Compiler<'a> {
 impl<'a> Compiler<'a> {
     fn new() -> Compiler<'a> {
         Compiler {
+            function: Function {
+                arity: 0,
+                chunk: Chunk::new(),
+                name: None,
+            },
+            function_type: FunctionType::Script,
             locals: Vec::new(),
             scope_depth: 0,
         }
@@ -626,18 +643,6 @@ static RULES : &[ParseRule] = mkrules!(
 );
 
 impl<'a> Parser<'a> {
-    fn new() -> Parser<'a> {
-        Parser {
-            compiler: None,
-            chunk: None,
-            scanner: scanner::Scanner::new(""),
-            current: None,
-            previous: None,
-            error: false,
-            panic_mode: false,
-            disassemble_on_error: false,
-        }
-    }
     fn print_error(token: &Token<'a>, message: &str) {
         eprint!("[line {}] Error", token.line);
 
@@ -686,38 +691,51 @@ impl<'a> Parser<'a> {
             }
         }
     }
-    fn compile(&mut self, source: &'a str) -> Result<Chunk, InterpretResult> {
-        self.compiler = Some(Compiler::new());
-        self.chunk = Some(Chunk::new());
-        self.scanner = scanner::Scanner::new(source);
-        self.advance();
-        while !advance_if!(self, EOF) {
-            self.declaration();
+    fn current_chunk(&self) -> &Chunk {
+        &self.compiler.function.chunk
+    }
+    fn current_chunk_mut(&mut self) -> &mut Chunk {
+        &mut self.compiler.function.chunk
+    }
+    fn compile(source: &'a str) -> Result<Chunk, InterpretResult> {
+        let mut parser: Parser = Parser {
+            compiler: Compiler::new(),
+            scanner: scanner::Scanner::new(source),
+            current: None,
+            previous: None,
+            error: false,
+            panic_mode: false,
+            disassemble_on_error: false,
+        };
+        parser.advance();
+        while !advance_if!(parser, EOF) {
+            parser.declaration();
         }
-        self.emit_byte(OpCode::Return as u8);
-        if self.error {
-            if self.disassemble_on_error {
-                self.chunk.as_ref().map(|c| c.disassemble("code"));
+        parser.emit_instr(OpCode::Return);
+        if parser.error {
+            if parser.disassemble_on_error {
+                parser.current_chunk().disassemble("code");
             }
             Err(InterpretResult::CompileError)
         } else {
-            Ok(self.chunk.take().unwrap())
+            Ok(parser.compiler.function.chunk)
         }
     }
+    fn emit_instr(&mut self, instr: OpCode) {
+        self.emit_byte(instr as u8)
+    }
     fn emit_byte(&mut self, byte: u8) {
-        self.chunk
-            .as_mut()
-            .unwrap()
-            .write(byte, self.previous.as_ref().unwrap().line as usize);
+        let line = self.previous.as_ref().unwrap().line as usize;
+        self.current_chunk_mut().write(byte, line);
     }
     fn emit_bytes(&mut self, byte: u8, byte2: u8) {
         self.emit_byte(byte);
         self.emit_byte(byte2);
     }
     fn emit_loop(&mut self, loop_start: usize) {
-        self.emit_byte(OpCode::Loop as u8);
+        self.emit_instr(OpCode::Loop);
 
-        let offset = self.chunk.as_ref().unwrap().code.len().sub(loop_start) + 2;
+        let offset = self.current_chunk().code.len().sub(loop_start) + 2;
         if offset > std::u16::MAX as usize {
             self.error("Loop body too large.");
         }
@@ -762,42 +780,25 @@ impl<'a> Parser<'a> {
         consume!(self, RightBrace, "Expect '}' after block.");
     }
     fn begin_scope(&mut self) {
-        self.compiler.as_mut().unwrap().scope_depth += 1;
+        self.compiler.scope_depth += 1;
     }
     fn end_scope(&mut self) {
-        self.compiler.as_mut().unwrap().scope_depth -= 1;
-        while !self.compiler.as_ref().unwrap().locals.is_empty()
-            && self
-                .compiler
-                .as_ref()
-                .unwrap()
-                .locals
-                .last()
-                .unwrap()
-                .depth
-                .is_some()
-            && self
-                .compiler
-                .as_ref()
-                .unwrap()
-                .locals
-                .last()
-                .unwrap()
-                .depth
-                .unwrap()
-                > self.compiler.as_ref().unwrap().scope_depth
+        self.compiler.scope_depth -= 1;
+        while !self.compiler.locals.is_empty()
+            && self.compiler.locals.last().unwrap().depth.is_some()
+            && self.compiler.locals.last().unwrap().depth.unwrap() > self.compiler.scope_depth
         {
-            self.emit_byte(OpCode::Pop as u8);
-            self.compiler.as_mut().unwrap().locals.pop();
+            self.emit_instr(OpCode::Pop);
+            self.compiler.locals.pop();
         }
     }
     fn print_statement(&mut self) {
         self.expression();
         consume!(self, Semicolon, "Expect ';' after value.");
-        self.emit_byte(OpCode::Print as u8)
+        self.emit_instr(OpCode::Print)
     }
     fn while_statement(&mut self) {
-        let loop_start = self.chunk.as_ref().unwrap().code.len();
+        let loop_start = self.current_chunk().code.len();
 
         consume!(self, LeftParen, "Expect '(' after 'while'.");
         self.expression();
@@ -805,18 +806,18 @@ impl<'a> Parser<'a> {
 
         let exit_jump = self.emit_jump(OpCode::JumpIfFalse as u8);
 
-        self.emit_byte(OpCode::Pop as u8);
+        self.emit_instr(OpCode::Pop);
         self.statement();
 
         self.emit_loop(loop_start);
 
         self.patch_jump(exit_jump);
-        self.emit_byte(OpCode::Pop as u8);
+        self.emit_instr(OpCode::Pop);
     }
     fn expression_statement(&mut self) {
         self.expression();
         consume!(self, Semicolon, "Expect ';' after expression.");
-        self.emit_byte(OpCode::Pop as u8);
+        self.emit_instr(OpCode::Pop);
     }
     fn for_statement(&mut self) {
         self.begin_scope();
@@ -829,22 +830,22 @@ impl<'a> Parser<'a> {
             self.expression_statement();
         }
 
-        let mut loop_start = self.chunk.as_ref().unwrap().code.len();
+        let mut loop_start = self.current_chunk().code.len();
 
         let mut exit_jump = None;
         if !advance_if!(self, Semicolon) {
             self.expression();
             consume!(self, Semicolon, "Expect ';' after loop condition.");
             exit_jump = Some(self.emit_jump(OpCode::JumpIfFalse as u8));
-            self.emit_byte(OpCode::Pop as u8);
+            self.emit_instr(OpCode::Pop);
         }
 
         if !advance_if!(self, RightParen) {
             let body_jump = self.emit_jump(OpCode::Jump as u8);
 
-            let increment_start = self.chunk.as_ref().unwrap().code.len();
+            let increment_start = self.current_chunk().code.len();
             self.expression();
-            self.emit_byte(OpCode::Pop as u8);
+            self.emit_instr(OpCode::Pop);
             consume!(self, RightParen, "Expect ')' after for clauses.");
 
             self.emit_loop(loop_start);
@@ -858,7 +859,7 @@ impl<'a> Parser<'a> {
 
         exit_jump.map(|x| {
             self.patch_jump(x);
-            self.emit_byte(OpCode::Pop as u8);
+            self.emit_instr(OpCode::Pop);
         });
 
         self.end_scope();
@@ -868,11 +869,11 @@ impl<'a> Parser<'a> {
         self.expression();
         consume!(self, RightParen, "Expect ')' after condition.");
         let then_jump = self.emit_jump(OpCode::JumpIfFalse as u8);
-        self.emit_byte(OpCode::Pop as u8);
+        self.emit_instr(OpCode::Pop);
         self.statement();
         let else_jump = self.emit_jump(OpCode::Jump as u8);
         self.patch_jump(then_jump);
-        self.emit_byte(OpCode::Pop as u8);
+        self.emit_instr(OpCode::Pop);
         if advance_if!(self, Else) {
             self.statement();
         }
@@ -880,22 +881,22 @@ impl<'a> Parser<'a> {
     }
     fn emit_jump(&mut self, instruction: u8) -> u16 {
         self.emit_byte(instruction);
-        let dest = self.chunk.as_ref().unwrap().code.len() as u16;
+        let dest = self.current_chunk().code.len() as u16;
         self.emit_byte(0xff);
         self.emit_byte(0xff);
         dest
     }
     fn patch_jump(&mut self, offset: u16) {
-        let jump: u16 = self.chunk.as_ref().unwrap().code.len() as u16 - offset - 2;
-        self.chunk.as_mut().unwrap().code[offset as usize] = (jump >> 8 & 0xff) as u8;
-        self.chunk.as_mut().unwrap().code[(offset as usize) + 1] = (jump & 0xff) as u8;
+        let jump: u16 = self.current_chunk().code.len() as u16 - offset - 2;
+        self.current_chunk_mut().code[offset as usize] = (jump >> 8 & 0xff) as u8;
+        self.current_chunk_mut().code[(offset as usize) + 1] = (jump & 0xff) as u8;
     }
     fn var_declaration(&mut self) {
         let global = self.parse_variable("Expect variable name.");
         if advance_if!(self, Equal) {
             self.expression();
         } else {
-            self.emit_byte(OpCode::Nil as u8);
+            self.emit_instr(OpCode::Nil);
         }
         consume!(self, Semicolon, "Expect ';' after variable declaration.");
         self.define_variable(global);
@@ -903,7 +904,7 @@ impl<'a> Parser<'a> {
     fn parse_variable(&mut self, msg: &str) -> u8 {
         consume!(self, Identifier, msg);
         self.declare_variable();
-        if self.compiler.as_ref().unwrap().scope_depth > 0 {
+        if self.compiler.scope_depth > 0 {
             return 0;
         }
         self.identifier_constant(self.previous.as_ref().unwrap().lexeme)
@@ -912,7 +913,7 @@ impl<'a> Parser<'a> {
         self.make_constant(Value::String(name.to_string()))
     }
     fn define_variable(&mut self, global: u8) {
-        if self.compiler.as_ref().unwrap().scope_depth > 0 {
+        if self.compiler.scope_depth > 0 {
             self.mark_initialized();
             return;
         }
@@ -920,7 +921,7 @@ impl<'a> Parser<'a> {
     }
     fn and_(&mut self, _: bool) {
         let end_jump = self.emit_jump(OpCode::JumpIfFalse as u8);
-        self.emit_byte(OpCode::Pop as u8);
+        self.emit_instr(OpCode::Pop);
         self.parse_precedence(ParsePrecedence::And);
         self.patch_jump(end_jump);
     }
@@ -928,18 +929,18 @@ impl<'a> Parser<'a> {
         let else_jump = self.emit_jump(OpCode::JumpIfFalse as u8);
         let end_jump = self.emit_jump(OpCode::Jump as u8);
         self.patch_jump(else_jump);
-        self.emit_byte(OpCode::Pop as u8);
+        self.emit_instr(OpCode::Pop);
         self.parse_precedence(ParsePrecedence::Or);
         self.patch_jump(end_jump);
     }
     fn declare_variable(&mut self) {
-        if self.compiler.as_ref().unwrap().scope_depth == 0 {
+        if self.compiler.scope_depth == 0 {
             return;
         }
         let name = self.previous.as_ref().unwrap().lexeme;
-        let depth = self.compiler.as_ref().unwrap().scope_depth;
+        let depth = self.compiler.scope_depth;
         let mut error = false;
-        for local in self.compiler.as_ref().unwrap().locals.iter().rev() {
+        for local in self.compiler.locals.iter().rev() {
             if let Some(d) = local.depth {
                 if d < depth {
                     break;
@@ -956,11 +957,11 @@ impl<'a> Parser<'a> {
         self.add_local(&token);
     }
     fn add_local(&mut self, name: &Token<'a>) {
-        if self.compiler.as_ref().unwrap().locals.len() > std::u8::MAX as usize {
+        if self.compiler.locals.len() > std::u8::MAX as usize {
             self.error("Too many local variables in function.");
             return;
         }
-        self.compiler.as_mut().unwrap().locals.push(Local {
+        self.compiler.locals.push(Local {
             name: Token {
                 tokentype: name.tokentype,
                 lexeme: name.lexeme,
@@ -970,14 +971,8 @@ impl<'a> Parser<'a> {
         })
     }
     fn mark_initialized(&mut self) {
-        let depth = self.compiler.as_ref().unwrap().scope_depth;
-        self.compiler
-            .as_mut()
-            .unwrap()
-            .locals
-            .last_mut()
-            .unwrap()
-            .depth = Some(depth);
+        let depth = self.compiler.scope_depth;
+        self.compiler.locals.last_mut().unwrap().depth = Some(depth);
     }
     fn number(&mut self, _: bool) {
         let value: f64 = self.previous.as_ref().unwrap().lexeme.parse().unwrap();
@@ -988,7 +983,7 @@ impl<'a> Parser<'a> {
         self.emit_bytes(OpCode::Constant as u8, constant);
     }
     fn make_constant(&mut self, value: Value) -> u8 {
-        match self.chunk.as_mut().unwrap().add_constant(value) {
+        match self.current_chunk_mut().add_constant(value) {
             Ok(c) => c,
             Err(_) => {
                 self.error("Too many constants in one chunk");
@@ -1004,8 +999,8 @@ impl<'a> Parser<'a> {
         let prev = self.previous.take().unwrap(); // Danger!
         self.parse_precedence(ParsePrecedence::Unary);
         match prev.tokentype {
-            TokenType::Bang => self.emit_byte(OpCode::Not as u8),
-            TokenType::Minus => self.emit_byte(OpCode::Negate as u8),
+            TokenType::Bang => self.emit_instr(OpCode::Not),
+            TokenType::Minus => self.emit_instr(OpCode::Negate),
             _ => (),
         }
     }
@@ -1014,24 +1009,24 @@ impl<'a> Parser<'a> {
         let rule = ParseRule::get_rule(prev.tokentype);
         self.parse_precedence(ParsePrecedence::try_from(rule.precedence as u8 + 1).unwrap());
         match prev.tokentype {
-            TokenType::Plus => self.emit_byte(OpCode::Add as u8),
-            TokenType::Minus => self.emit_byte(OpCode::Subtract as u8),
-            TokenType::Star => self.emit_byte(OpCode::Multiply as u8),
-            TokenType::Slash => self.emit_byte(OpCode::Divide as u8),
+            TokenType::Plus => self.emit_instr(OpCode::Add),
+            TokenType::Minus => self.emit_instr(OpCode::Subtract),
+            TokenType::Star => self.emit_instr(OpCode::Multiply),
+            TokenType::Slash => self.emit_instr(OpCode::Divide),
             TokenType::BangEqual => self.emit_bytes(OpCode::Equal as u8, OpCode::Not as u8),
-            TokenType::EqualEqual => self.emit_byte(OpCode::Equal as u8),
-            TokenType::Greater => self.emit_byte(OpCode::Greater as u8),
+            TokenType::EqualEqual => self.emit_instr(OpCode::Equal),
+            TokenType::Greater => self.emit_instr(OpCode::Greater),
             TokenType::GreaterEqual => self.emit_bytes(OpCode::Less as u8, OpCode::Not as u8),
-            TokenType::Less => self.emit_byte(OpCode::Less as u8),
+            TokenType::Less => self.emit_instr(OpCode::Less),
             TokenType::LessEqual => self.emit_bytes(OpCode::Greater as u8, OpCode::Not as u8),
             _ => (),
         }
     }
     fn literal(&mut self, _: bool) {
         match self.previous.as_ref().unwrap().tokentype {
-            TokenType::False => self.emit_byte(OpCode::False as u8),
-            TokenType::Nil => self.emit_byte(OpCode::Nil as u8),
-            TokenType::True => self.emit_byte(OpCode::True as u8),
+            TokenType::False => self.emit_instr(OpCode::False),
+            TokenType::Nil => self.emit_instr(OpCode::Nil),
+            TokenType::True => self.emit_instr(OpCode::True),
             _ => (),
         }
     }
@@ -1063,8 +1058,6 @@ impl<'a> Parser<'a> {
         let mut error = false;
         let ret = self
             .compiler
-            .as_ref()
-            .unwrap()
             .locals
             .iter()
             .enumerate()
