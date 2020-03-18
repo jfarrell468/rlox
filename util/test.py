@@ -50,13 +50,13 @@ def c_interpreter(name, tests):
     path = 'build/' + name
 
   INTERPRETERS[name] = Interpreter(name, 'c',
-      ['/usr/local/google/home/jamesfarrell/IdeaProjects/rlox/target/debug/rblox'], tests)
+      ['target/debug/rblox'], tests)
   C_SUITES.append(name)
 
 
 def java_interpreter(name, tests):
   INTERPRETERS[name] = Interpreter(name, 'java',
-      ['/usr/local/google/home/jamesfarrell/IdeaProjects/rlox/target/debug/rlox'], tests)
+      ['target/debug/rlox'], tests)
   JAVA_SUITES.append(name)
 
 
