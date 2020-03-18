@@ -403,7 +403,6 @@ mod resolver_error_tests {
     use crate::parser;
     use crate::resolver;
     use crate::scanner;
-    use std::error::Error;
 
     fn expect_error(source: &str, expected_error: &str) {
         let (tokens, success) = scanner::scan_tokens(source);
@@ -414,7 +413,7 @@ mod resolver_error_tests {
         let result = resolver.resolve(&mut statements);
         assert!(result.is_err());
         result.err().map(|err| {
-            assert_eq!(err.description(), expected_error);
+            assert_eq!(err.message, expected_error);
         });
     }
 

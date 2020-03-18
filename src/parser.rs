@@ -614,14 +614,13 @@ mod parse_tests {
 mod parse_error_tests {
     use crate::parser;
     use crate::scanner;
-    use std::error::Error;
 
     fn expect_error(source: &str, expected_description: &str) {
         let (tokens, success) = scanner::scan_tokens(source);
         assert!(success);
         let (_, last_err) = parser::parse(&tokens);
         assert!(last_err.is_some());
-        assert_eq!(last_err.unwrap().description(), expected_description)
+        assert_eq!(last_err.unwrap().message, expected_description)
     }
 
     #[test]
