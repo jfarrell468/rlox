@@ -1,7 +1,6 @@
 use crate::ast::{Expression, MutatingVisitor, Statement};
 use crate::token::Token;
 use std::collections::BTreeMap;
-use std::error::Error;
 use std::fmt;
 
 #[derive(Debug)]
@@ -20,12 +19,6 @@ impl<'a> fmt::Display for ResolverError<'a> {
                 token.line, token.lexeme, self.message
             ),
         }
-    }
-}
-
-impl<'a> Error for ResolverError<'a> {
-    fn description(&self) -> &str {
-        &self.message
     }
 }
 

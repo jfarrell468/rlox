@@ -1,7 +1,6 @@
 use crate::ast::{Expression, Statement};
 use crate::callable::LoxFunction;
 use crate::token::{Token, TokenType};
-use std::error::Error;
 use std::fmt;
 
 #[derive(Debug)]
@@ -23,12 +22,6 @@ impl<'a> fmt::Display for ParseError<'a> {
             .as_str(),
             self.message.as_str(),
         )
-    }
-}
-
-impl<'a> Error for ParseError<'a> {
-    fn description(&self) -> &str {
-        &self.message
     }
 }
 

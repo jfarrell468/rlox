@@ -5,7 +5,6 @@ use crate::environment::{Environment, EnvironmentError};
 use crate::instance::Instance;
 use crate::token::{Token, TokenType};
 use std::collections::BTreeMap;
-use std::error::Error;
 use std::fmt;
 use std::io;
 use std::io::Read;
@@ -30,11 +29,6 @@ impl<'a> fmt::Display for RuntimeError<'a> {
         }
     }
 }
-impl<'a> Error for RuntimeError<'a> {
-    fn description(&self) -> &str {
-        &self.message
-    }
-}
 impl<'a> RuntimeError<'a> {
     pub fn new(msg: &str, token: Option<&'a Token<'a>>) -> ErrorType<'a> {
         ErrorType::RuntimeError(RuntimeError {
@@ -51,11 +45,6 @@ impl<'a> fmt::Display for Return<'a> {
         write!(f, "return {}", self.0)
     }
 }
-impl<'a> Error for Return<'a> {
-    fn description(&self) -> &str {
-        "return"
-    }
-}
 
 #[derive(Debug)]
 pub enum ErrorType<'a> {
@@ -69,15 +58,6 @@ impl<'a> fmt::Display for ErrorType<'a> {
             ErrorType::Return(x) => x.fmt(f),
             ErrorType::EnvironmentError(x) => x.fmt(f),
             ErrorType::RuntimeError(x) => x.fmt(f),
-        }
-    }
-}
-impl<'a> Error for ErrorType<'a> {
-    fn description(&self) -> &str {
-        match self {
-            ErrorType::Return(x) => x.description(),
-            ErrorType::EnvironmentError(x) => x.description(),
-            ErrorType::RuntimeError(x) => x.description(),
         }
     }
 }

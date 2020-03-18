@@ -3,7 +3,6 @@ use crate::interpreter::ErrorType;
 use crate::shared_list::SharedList;
 use crate::token::Token;
 use std::collections::BTreeMap;
-use std::error::Error;
 use std::fmt;
 
 #[derive(Debug)]
@@ -18,12 +17,6 @@ impl<'a> fmt::Display for EnvironmentError<'a> {
             None => write!(f, "Runtime error: {}", self.message),
             Some(token) => write!(f, "{}\n[line {}] ", self.message, token.line),
         }
-    }
-}
-
-impl<'a> Error for EnvironmentError<'a> {
-    fn description(&self) -> &str {
-        &self.message
     }
 }
 
