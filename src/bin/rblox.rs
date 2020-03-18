@@ -1,13 +1,14 @@
+use clap::{App, Arg};
 use num_enum::TryFromPrimitive;
 use rlox::scanner;
 use rlox::token::{Token, TokenType};
 use std::collections::BTreeMap;
 use std::convert::{TryFrom, TryInto};
-use std::env;
 use std::fmt;
 use std::fmt::Formatter;
 use std::fs;
 use std::io::{self, Write};
+use std::ops::Sub;
 use strum_macros::Display;
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive, Display)]
@@ -33,6 +34,9 @@ enum OpCode {
     Not,
     Negate,
     Print,
+    Jump,
+    JumpIfFalse,
+    Loop,
     Return,
 }
 
@@ -44,7 +48,7 @@ impl OpCode {
     pub fn constant_instruction(&self, chunk: &Chunk, offset: usize) -> usize {
         let constant = chunk.code[offset + 1] as usize;
         println!(
-            "{:16} {:4} '{}'",
+            "{:16} {:4} '{:?}'",
             format!("{}", self),
             constant,
             chunk.constant[constant]
@@ -55,6 +59,17 @@ impl OpCode {
         let slot = chunk.code[offset + 1];
         println!("{:16} {:4}", format!("{}", self), slot);
         offset + 2
+    }
+    pub fn jump_instruction(&self, sign: i32, chunk: &Chunk, offset: usize) -> usize {
+        let mut jump = (chunk.code[offset + 1] as u16) << 8;
+        jump |= chunk.code[offset + 2] as u16;
+        println!(
+            "{:16} {:4} -> {}",
+            format!("{}", self),
+            offset,
+            (offset as i32) + 3 + sign * (jump as i32)
+        );
+        offset + 3
     }
 }
 
@@ -157,6 +172,8 @@ impl Chunk {
                 instruction.constant_instruction(self, offset)
             }
             OpCode::SetLocal | OpCode::GetLocal => instruction.byte_instruction(self, offset),
+            OpCode::Jump | OpCode::JumpIfFalse => instruction.jump_instruction(1, self, offset),
+            OpCode::Loop => instruction.jump_instruction(-1, self, offset),
             _ => instruction.simple_instruction(offset),
         }
     }
@@ -201,11 +218,14 @@ impl<'a> Vm<'a> {
         self.run()
     }
     fn run(&mut self) -> InterpretResult {
+        if self.trace_execution {
+            self.chunk.unwrap().disassemble("program");
+        }
         loop {
             if self.trace_execution {
                 print!("          ");
-                for val in &self.stack {
-                    print!("[ {} ]", val);
+                for val in self.stack.iter().rev() {
+                    print!("[ {:?} ]", val);
                 }
                 println!("");
                 self.chunk.unwrap().disassemble_instruction(
@@ -335,6 +355,22 @@ impl<'a> Vm<'a> {
                 OpCode::Print => {
                     println!("{}", self.stack.pop().unwrap());
                 }
+                OpCode::Jump => {
+                    let offset = self.read_short() as usize;
+                    self.ip.as_mut().map(|x| x.nth(offset.sub(1)));
+                }
+                OpCode::JumpIfFalse => {
+                    let offset = self.read_short() as usize;
+                    if self.peek(0).is_falsey() {
+                        self.ip.as_mut().map(|x| x.nth(offset.sub(1)));
+                    }
+                }
+                OpCode::Loop => {
+                    let offset = self.read_short() as usize;
+                    let ip = self.ip.as_mut().unwrap().peek().unwrap().0;
+                    self.ip = Some(self.chunk.unwrap().code.iter().enumerate().peekable());
+                    self.ip.as_mut().map(|x| x.nth(ip.sub(offset).sub(1)));
+                }
                 OpCode::Return => {
                     return InterpretResult::Ok;
                 }
@@ -343,6 +379,11 @@ impl<'a> Vm<'a> {
     }
     fn read_byte(&mut self) -> u8 {
         *self.ip.as_mut().map(|x| x.next()).unwrap().unwrap().1
+    }
+    fn read_short(&mut self) -> u16 {
+        let hi = self.read_byte();
+        let lo = self.read_byte();
+        (hi as u16) << 8 | (lo as u16)
     }
     fn read_constant(&mut self) -> Value {
         self.chunk
@@ -373,21 +414,25 @@ impl<'a> Vm<'a> {
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    match args.len() {
-        1 => run_prompt(),
-        2 => run_file(&args[1]),
-        _ => {
-            println!("Usage: rlox [script]");
-            // TODO: https://rust-cli.github.io/book/in-depth/exit-code.html
-            std::process::exit(64);
-        }
+    let matches = App::new("My Super Program")
+        .arg(
+            Arg::with_name("trace")
+                .long("trace")
+                .help("Trace execution"),
+        )
+        .arg(Arg::with_name("INPUT").help("Lox script to execute"))
+        .get_matches();
+    let trace = matches.is_present("trace");
+    if matches.is_present("INPUT") {
+        run_file(matches.value_of("INPUT").unwrap(), trace);
+    } else {
+        run_prompt(trace);
     }
 }
 
-fn run_file(file: &str) {
+fn run_file(file: &str, trace: bool) {
     let contents = fs::read_to_string(file).expect("Something went wrong reading the file");
-    let result = interpret(&contents);
+    let result = interpret(&contents, trace);
     match result {
         InterpretResult::CompileError => std::process::exit(65),
         InterpretResult::RuntimeError => std::process::exit(70),
@@ -395,7 +440,7 @@ fn run_file(file: &str) {
     }
 }
 
-fn run_prompt() {
+fn run_prompt(trace: bool) {
     loop {
         print!("> ");
         io::stdout().flush().unwrap();
@@ -403,11 +448,11 @@ fn run_prompt() {
         io::stdin()
             .read_line(&mut line)
             .expect("Failed to read line");
-        interpret(&line);
+        interpret(&line, trace);
     }
 }
 
-fn interpret(source: &str) -> InterpretResult {
+fn interpret(source: &str, trace: bool) -> InterpretResult {
     let mut parser = Parser::new();
     match parser.compile(source) {
         Ok(chunk) => {
@@ -415,7 +460,7 @@ fn interpret(source: &str) -> InterpretResult {
                 chunk: None,
                 ip: None,
                 stack: Vec::new(),
-                trace_execution: false,
+                trace_execution: trace,
                 globals: BTreeMap::new(),
             };
             return vm.interpret(&chunk);
@@ -561,7 +606,7 @@ static RULES : &[ParseRule] = mkrules!(
     variable, None,    None;       // Identifier
     string,   None,    None;       // String
     number,   None,    None;       // Number
-    None,     None,    None;       // And
+    None,     and_,    And;        // And
     None,     None,    None;       // Class
     None,     None,    None;       // Else
     literal,  None,    None;       // False
@@ -569,7 +614,7 @@ static RULES : &[ParseRule] = mkrules!(
     None,     None,    None;       // Fun
     None,     None,    None;       // If
     literal,  None,    None;       // Nil
-    None,     None,    None;       // Or
+    None,     or_,     Or;         // Or
     None,     None,    None;       // Print
     None,     None,    None;       // Return
     None,     None,    None;       // Super
@@ -669,6 +714,17 @@ impl<'a> Parser<'a> {
         self.emit_byte(byte);
         self.emit_byte(byte2);
     }
+    fn emit_loop(&mut self, loop_start: usize) {
+        self.emit_byte(OpCode::Loop as u8);
+
+        let offset = self.chunk.as_ref().unwrap().code.len().sub(loop_start) + 2;
+        if offset > std::u16::MAX as usize {
+            self.error("Loop body too large.");
+        }
+
+        self.emit_byte(((offset >> 8) & 0xff) as u8);
+        self.emit_byte((offset & 0xff) as u8);
+    }
     fn expression(&mut self) {
         self.parse_precedence(ParsePrecedence::Assignment)
     }
@@ -689,6 +745,12 @@ impl<'a> Parser<'a> {
             self.begin_scope();
             self.block();
             self.end_scope();
+        } else if advance_if!(self, For) {
+            self.for_statement();
+        } else if advance_if!(self, If) {
+            self.if_statement();
+        } else if advance_if!(self, While) {
+            self.while_statement();
         } else {
             self.expression_statement();
         }
@@ -734,10 +796,99 @@ impl<'a> Parser<'a> {
         consume!(self, Semicolon, "Expect ';' after value.");
         self.emit_byte(OpCode::Print as u8)
     }
+    fn while_statement(&mut self) {
+        let loop_start = self.chunk.as_ref().unwrap().code.len();
+
+        consume!(self, LeftParen, "Expect '(' after 'while'.");
+        self.expression();
+        consume!(self, RightParen, "Expect ')' after condition.");
+
+        let exit_jump = self.emit_jump(OpCode::JumpIfFalse as u8);
+
+        self.emit_byte(OpCode::Pop as u8);
+        self.statement();
+
+        self.emit_loop(loop_start);
+
+        self.patch_jump(exit_jump);
+        self.emit_byte(OpCode::Pop as u8);
+    }
     fn expression_statement(&mut self) {
         self.expression();
-        consume!(self, Semicolon, "Expect ';' after value.");
-        self.emit_byte(OpCode::Pop as u8)
+        consume!(self, Semicolon, "Expect ';' after expression.");
+        self.emit_byte(OpCode::Pop as u8);
+    }
+    fn for_statement(&mut self) {
+        self.begin_scope();
+
+        consume!(self, LeftParen, "Expect '(' after 'for'.");
+        if advance_if!(self, Semicolon) {
+        } else if advance_if!(self, Var) {
+            self.var_declaration();
+        } else {
+            self.expression_statement();
+        }
+
+        let mut loop_start = self.chunk.as_ref().unwrap().code.len();
+
+        let mut exit_jump = None;
+        if !advance_if!(self, Semicolon) {
+            self.expression();
+            consume!(self, Semicolon, "Expect ';' after loop condition.");
+            exit_jump = Some(self.emit_jump(OpCode::JumpIfFalse as u8));
+            self.emit_byte(OpCode::Pop as u8);
+        }
+
+        if !advance_if!(self, RightParen) {
+            let body_jump = self.emit_jump(OpCode::Jump as u8);
+
+            let increment_start = self.chunk.as_ref().unwrap().code.len();
+            self.expression();
+            self.emit_byte(OpCode::Pop as u8);
+            consume!(self, RightParen, "Expect ')' after for clauses.");
+
+            self.emit_loop(loop_start);
+            loop_start = increment_start;
+            self.patch_jump(body_jump);
+        }
+
+        self.statement();
+
+        self.emit_loop(loop_start);
+
+        exit_jump.map(|x| {
+            self.patch_jump(x);
+            self.emit_byte(OpCode::Pop as u8);
+        });
+
+        self.end_scope();
+    }
+    fn if_statement(&mut self) {
+        consume!(self, LeftParen, "Expect '(' after 'if'.");
+        self.expression();
+        consume!(self, RightParen, "Expect ')' after condition.");
+        let then_jump = self.emit_jump(OpCode::JumpIfFalse as u8);
+        self.emit_byte(OpCode::Pop as u8);
+        self.statement();
+        let else_jump = self.emit_jump(OpCode::Jump as u8);
+        self.patch_jump(then_jump);
+        self.emit_byte(OpCode::Pop as u8);
+        if advance_if!(self, Else) {
+            self.statement();
+        }
+        self.patch_jump(else_jump);
+    }
+    fn emit_jump(&mut self, instruction: u8) -> u16 {
+        self.emit_byte(instruction);
+        let dest = self.chunk.as_ref().unwrap().code.len() as u16;
+        self.emit_byte(0xff);
+        self.emit_byte(0xff);
+        dest
+    }
+    fn patch_jump(&mut self, offset: u16) {
+        let jump: u16 = self.chunk.as_ref().unwrap().code.len() as u16 - offset - 2;
+        self.chunk.as_mut().unwrap().code[offset as usize] = (jump >> 8 & 0xff) as u8;
+        self.chunk.as_mut().unwrap().code[(offset as usize) + 1] = (jump & 0xff) as u8;
     }
     fn var_declaration(&mut self) {
         let global = self.parse_variable("Expect variable name.");
@@ -766,6 +917,20 @@ impl<'a> Parser<'a> {
             return;
         }
         self.emit_bytes(OpCode::DefineGlobal as u8, global);
+    }
+    fn and_(&mut self, _: bool) {
+        let end_jump = self.emit_jump(OpCode::JumpIfFalse as u8);
+        self.emit_byte(OpCode::Pop as u8);
+        self.parse_precedence(ParsePrecedence::And);
+        self.patch_jump(end_jump);
+    }
+    fn or_(&mut self, _: bool) {
+        let else_jump = self.emit_jump(OpCode::JumpIfFalse as u8);
+        let end_jump = self.emit_jump(OpCode::Jump as u8);
+        self.patch_jump(else_jump);
+        self.emit_byte(OpCode::Pop as u8);
+        self.parse_precedence(ParsePrecedence::Or);
+        self.patch_jump(end_jump);
     }
     fn declare_variable(&mut self) {
         if self.compiler.as_ref().unwrap().scope_depth == 0 {
