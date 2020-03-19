@@ -10,3 +10,5 @@ mod class;
 mod environment;
 mod instance;
 mod shared_list;
+
+pub mod vm;
